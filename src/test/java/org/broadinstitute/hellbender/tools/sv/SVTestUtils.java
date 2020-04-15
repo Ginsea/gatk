@@ -25,7 +25,7 @@ public class SVTestUtils {
     final static int length = 10000;
 
     //separated from end of call1 by defragmenter padding
-    final static int start2 = (start + length -1) + (int)Math.round(length * SVDepthOnlyCallDefragmenterTest.defaultDefragmenter.getPaddingFraction());
+    final static int start2 = (start + length -1) + (int)Math.round(length * SVDepthOnlyCallDefragmenter.getPaddingFraction());
 
     final static Genotype sample1 = GenotypeBuilder.create("sample1", Collections.singletonList(Allele.create("<"+ GATKSVVCFConstants.SYMB_ALT_ALLELE_DEL+">", false)));
 

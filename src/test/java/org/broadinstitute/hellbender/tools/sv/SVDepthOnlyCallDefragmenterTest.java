@@ -84,6 +84,6 @@ public class SVDepthOnlyCallDefragmenterTest {
         //interval describing cluster should already be padded
         Assert.assertEquals(totalInterval.getStart(), SVTestUtils.start);
         //padding is added to the input call
-        Assert.assertEquals(totalInterval.getEnd(), SVTestUtils.call2.getEnd()+(int)Math.round(SVTestUtils.length*defaultDefragmenter.getPaddingFraction()));
+        Assert.assertEquals(totalInterval.getEnd(), SVTestUtils.call2.getEnd()+(int)Math.round(SVTestUtils.length*SVDepthOnlyCallDefragmenter.getPaddingFraction()));
     }
 }

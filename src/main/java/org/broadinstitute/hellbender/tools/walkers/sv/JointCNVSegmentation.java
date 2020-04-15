@@ -105,7 +105,10 @@ public class JointCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
             processClusters();
         }
         for (final VariantContext vc : variantContexts) {
-            defragmenter.add(new SVCallRecordWithEvidence(SVCallRecord.createDepthOnlyFromGCNV(vc, minQS)));
+            final SVCallRecord record = SVCallRecord.createDepthOnlyFromGCNV(vc, minQS);
+            if (record != null) {
+                defragmenter.add(new SVCallRecordWithEvidence(record));
+            }
         }
     }
 
