@@ -8,6 +8,7 @@ import org.testng.annotations.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 public class SVDepthOnlyCallDefragmenterTest {
 
@@ -85,5 +86,36 @@ public class SVDepthOnlyCallDefragmenterTest {
         Assert.assertEquals(totalInterval.getStart(), SVTestUtils.start);
         //padding is added to the input call
         Assert.assertEquals(totalInterval.getEnd(), SVTestUtils.call2.getEnd()+(int)Math.round(SVTestUtils.length*SVDepthOnlyCallDefragmenter.getPaddingFraction()));
+    }
+
+    @Test
+    public void testAdd() {
+        //single-sample merge case, ignoring sample sets
+        final SVDepthOnlyCallDefragmenter temp1 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0);
+        temp1.add(SVTestUtils.call1);
+        //force new cluster by adding a non-overlapping event
+        temp1.add(SVTestUtils.call3);
+        final List<SVCallRecordWithEvidence> output1 = temp1.getOutput(); //flushes all clusters
+        Assert.assertEquals(output1.size(), 2);
+        Assert.assertEquals(SVTestUtils.call1, output1.get(0));
+        Assert.assertEquals(SVTestUtils.call3, output1.get(1));
+
+        final SVDepthOnlyCallDefragmenter temp2 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0);
+        temp2.add(SVTestUtils.call1);
+        temp2.add(SVTestUtils.call2);  //should overlap after padding
+        //force new cluster by adding a call on another contig
+        temp2.add(SVTestUtils.call4_chr10);
+        final List<SVCallRecordWithEvidence> output2 = temp2.getOutput();
+        Assert.assertEquals(output2.size(), 2);
+        Assert.assertEquals(output2.get(0).getStart(), SVTestUtils.call1.getStart());
+        Assert.assertEquals(output2.get(0).getEnd(), SVTestUtils.call2.getEnd());
+        Assert.assertEquals(output2.get(1), SVTestUtils.call4_chr10);
+
+        //cohort case, checking sample set overlap
+        final SVDepthOnlyCallDefragmenter temp3 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict);
+        temp3.add(SVTestUtils.call1);
+        temp3.add(SVTestUtils.sameBoundsSampleMismatch);
+        final List<SVCallRecordWithEvidence> output3 = temp3.getOutput();
+        Assert.assertEquals(output3.size(), 2);
     }
 }

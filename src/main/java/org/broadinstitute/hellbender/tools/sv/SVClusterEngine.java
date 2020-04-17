@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 
 public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvidence> {
 
-    private final double MIN_RECIPROCAL_OVERLAP_DEPTH = 0.8;
+    private static final double MIN_RECIPROCAL_OVERLAP_DEPTH = 0.8;
     private final double BREAKEND_CLUSTERING_WINDOW_FRACTION = 0.5;
     private final int MIN_BREAKEND_CLUSTERING_WINDOW = 50;
     private final int MAX_BREAKEND_CLUSTERING_WINDOW = 300;
@@ -38,7 +38,7 @@ public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvid
         final int medianStart = startPositions.get(startPositions.size() / 2);
         final int medianEnd = endPositions.get(endPositions.size() / 2);
         final SVCallRecordWithEvidence exampleCall = cluster.iterator().next();
-        final int length = exampleCall.getContig().equals(exampleCall.getEndContig()) && !exampleCall.getType().equals(StructuralVariantType.INS) ? medianEnd - medianStart : exampleCall.getLength();
+        final int length = exampleCall.getContig().equals(exampleCall.getEndContig()) && !exampleCall.getType().equals(StructuralVariantType.INS) ? medianEnd - medianStart + 1: exampleCall.getLength();
         final List<String> algorithms = cluster.stream().flatMap(v -> v.getAlgorithms().stream()).distinct().collect(Collectors.toList());
         final List<Genotype> clusterSamples = cluster.stream().flatMap(v -> v.getGenotypes().stream()).collect(Collectors.toList());
 
@@ -199,7 +199,7 @@ public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvid
         return call.getAlgorithms().size() == 1 && call.getAlgorithms().get(0).equals(GATKSVVCFConstants.DEPTH_ALGORITHM);
     }
 
-    public double getMinReciprocalOverlap() {
+    public static double getMinReciprocalOverlap() {
         return MIN_RECIPROCAL_OVERLAP_DEPTH;
     }
 }

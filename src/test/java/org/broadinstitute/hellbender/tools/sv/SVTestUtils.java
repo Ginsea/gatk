@@ -27,6 +27,8 @@ public class SVTestUtils {
     //separated from end of call1 by defragmenter padding
     final static int start2 = (start + length -1) + (int)Math.round(length * SVDepthOnlyCallDefragmenter.getPaddingFraction());
 
+    final static int start3 = start + (int)Math.round(Math.floor((1-SVClusterEngine.getMinReciprocalOverlap())*length));
+
     final static Genotype sample1 = GenotypeBuilder.create("sample1", Collections.singletonList(Allele.create("<"+ GATKSVVCFConstants.SYMB_ALT_ALLELE_DEL+">", false)));
 
     final static Genotype sample2 = GenotypeBuilder.create("sample2", Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_ALLELE_DUP+">", false)));
@@ -66,6 +68,20 @@ public class SVTestUtils {
             Arrays.asList(sample1, sample2),
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 
+    final static SVCallRecordWithEvidence call3 = new SVCallRecordWithEvidence("chr1", start2+10000, true,
+            "chr1", start2 + 10000 + length -1, true,
+            StructuralVariantType.CNV, length,
+            Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
+            Arrays.asList(sample1, sample2),
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    final static SVCallRecordWithEvidence call4_chr10 = new SVCallRecordWithEvidence("chr10", start, true,
+            "chr10", start + length -1, true,
+            StructuralVariantType.CNV, length,
+            Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
+            Arrays.asList(sample1, sample2),
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
     final static Genotype sample3 = GenotypeBuilder.create("sample3", Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_ALLELE_DEL+">", false)));
 
     final static SVCallRecordWithEvidence sameBoundsSampleMismatch = new SVCallRecordWithEvidence("chr1", start, true,
@@ -88,4 +104,11 @@ public class SVTestUtils {
     static final SVCallRecordWithEvidence depthAndStuff = new SVCallRecordWithEvidence("chr1", 10000, true, "chr1", 20000, true,
                     StructuralVariantType.CNV, 10001, Arrays.asList("depth", "PE"), Collections.singletonList(sample2),
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    final static SVCallRecordWithEvidence overlapsCall1 = new SVCallRecordWithEvidence("chr1", start3, true,
+            "chr1", start3 + length -1, true,
+            StructuralVariantType.CNV, length,
+            Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
+            Arrays.asList(sample1, sample2),
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 }
