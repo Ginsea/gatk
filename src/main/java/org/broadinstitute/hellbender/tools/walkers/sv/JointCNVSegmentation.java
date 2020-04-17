@@ -81,6 +81,7 @@ public class JointCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
         final Set<VCFHeaderLine> headerLines = new LinkedHashSet<>(inputVCFHeader.getMetaDataInInputOrder());
         headerLines.addAll(getDefaultToolVCFHeaderLines());
         headerLines.add(GATKSVVCFHeaderLines.getInfoLine(GATKSVVCFConstants.SVLEN));
+        headerLines.add(GATKSVVCFHeaderLines.getInfoLine(GATKSVVCFConstants.SVTYPE));
 
         VariantContextWriter writer = createVCFWriter(outputFile);
 

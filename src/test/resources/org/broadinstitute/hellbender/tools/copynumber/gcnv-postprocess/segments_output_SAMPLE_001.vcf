@@ -7,11 +7,11 @@
 ##FORMAT=<ID=QSE,Number=1,Type=Integer,Description="Complementary Phred-scaled probability that the segment end position is a genuine copy-number changepoint">
 ##FORMAT=<ID=QSS,Number=1,Type=Integer,Description="Complementary Phred-scaled probability that the segment start position is a genuine copy-number changepoint">
 ##INFO=<ID=END,Number=1,Type=Integer,Description="End coordinate of the variant">
-##contig=<ID=1,length=986037>
-##contig=<ID=2,length=1914216>
-##contig=<ID=3,length=3194368>
-##contig=<ID=X,length=2139367>
-##contig=<ID=Y,length=2089367>
+##contig=<ID=1,length=249250621>
+##contig=<ID=2,length=243199373>
+##contig=<ID=3,length=198022430>
+##contig=<ID=X,length=155270560>
+##contig=<ID=Y,length=59373566>
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE_001
 1	68993	CNV_1_68993_986037	N	.	3076.53	.	END=986037	GT:CN:NP:QA:QS:QSE:QSS	0:2:102:68:3077:178:173
 2	38716	CNV_2_38716_230141	N	.	594.27	.	END=230141	GT:CN:NP:QA:QS:QSE:QSS	0:2:5:125:594:184:125
