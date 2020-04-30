@@ -1,12 +1,15 @@
 package org.broadinstitute.hellbender.tools.copynumber;
 
 import htsjdk.samtools.util.FileExtensions;
+import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFHeader;
+import org.apache.commons.lang3.tuple.Pair;
 import org.broadinstitute.hellbender.CommandLineProgramTest;
 import org.broadinstitute.hellbender.cmdline.StandardArgumentDefinitions;
 import org.broadinstitute.hellbender.testutils.ArgumentsBuilder;
 import org.broadinstitute.hellbender.testutils.IntegrationTestSpec;
 import org.broadinstitute.hellbender.testutils.VariantContextTestUtils;
+import org.broadinstitute.hellbender.utils.variant.GATKVariantContextUtils;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -45,9 +48,9 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
     private final List<String> ALLOSOMAL_CONTIGS = Arrays.asList("X", "Y");
 
     private static final List<File> INTERVALS_VCF_CORRECT_OUTPUTS = Arrays.asList(
-            new File(TEST_SUB_DIR, "intervals_output_SAMPLE_000.vcf"),
-            new File(TEST_SUB_DIR, "intervals_output_SAMPLE_001.vcf"),
-            new File(TEST_SUB_DIR, "intervals_output_SAMPLE_002.vcf"));
+            new File(TEST_SUB_DIR, "intervals_output_SAMPLE_000.vcf.gz"),
+            new File(TEST_SUB_DIR, "intervals_output_SAMPLE_001.vcf.gz"),
+            new File(TEST_SUB_DIR, "intervals_output_SAMPLE_002.vcf.gz"));
 
     private static final List<File> SEGMENTS_VCF_CORRECT_OUTPUTS = Arrays.asList(
             new File(TEST_SUB_DIR, "segments_output_SAMPLE_000.vcf"),
@@ -61,11 +64,14 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
 
     private static final int NUM_TEST_SAMPLES = 3;
 
+    private static final File COMBINED_INTERVALS_VCF = new File(toolsTestDir + "copynumber/gcnv-postprocess/intervals.combined.vcf.gz");
+    private static final File CLUSTERED_VCF = new File(toolsTestDir + "copynumber/clustering/threeSamples.vcf.gz");
+
     /**
      * Runs {@link PostprocessGermlineCNVCalls} for a single sample. If {@code segmentsOutputVCF} is null,
      * the tool will only generate intervals VCF output (which is the expected behavior).
      */
-    private void runToolForSingleSample(final List<String> callShards,
+    private ArgumentsBuilder getArgsForSingleSample(final List<String> callShards,
                                         final List<String> modelShards,
                                         final int sampleIndex,
                                         final File intervalsOutputVCF,
@@ -100,7 +106,23 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
         argumentsBuilder.add(PostprocessGermlineCNVCalls.OUTPUT_DENOISED_COPY_RATIOS_LONG_NAME,
                 denoisedCopyRatiosOutput.getAbsolutePath());
 
-        runCommandLine(argumentsBuilder.getArgsList());
+        return argumentsBuilder;
+    }
+
+    private ArgumentsBuilder getArgsWithBreakpoints(final List<String> callShards,
+                                        final List<String> modelShards,
+                                        final int sampleIndex,
+                                        final File intervalsOutputVCF,
+                                        final File segmentsOutputVCF,
+                                        final File denoisedCopyRatiosOutput,
+                                        final List<String> allosomalContigs,
+                                        final int refAutosomalCopyNumber,
+                                        final File combinedIntervalsVCF,
+                                        final File clusteredVCF) {
+        ArgumentsBuilder args = getArgsForSingleSample(callShards, modelShards, sampleIndex, intervalsOutputVCF, segmentsOutputVCF, denoisedCopyRatiosOutput, allosomalContigs, refAutosomalCopyNumber);
+        args.add(PostprocessGermlineCNVCalls.CLUSTERED_FILE_LONG_NAME, clusteredVCF);
+        args.add(PostprocessGermlineCNVCalls.COMBINED_INTERVALS_LONG_NAME, combinedIntervalsVCF);
+        return args;
     }
 
     @Test(dataProvider = "differentValidInput", groups = {"python"})
@@ -117,9 +139,10 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
         final File expectedIntervalsOutputVCF = INTERVALS_VCF_CORRECT_OUTPUTS.get(sampleIndex);
         final File expectedSegmentsOutputVCF = SEGMENTS_VCF_CORRECT_OUTPUTS.get(sampleIndex);
         final File expectedDenoisedCopyRatiosOutput = DENOISED_COPY_RATIOS_OUTPUTS.get(sampleIndex);
-        runToolForSingleSample(callShards, modelShards, sampleIndex,
+        final ArgumentsBuilder args = getArgsForSingleSample(callShards, modelShards, sampleIndex,
                 actualIntervalsOutputVCF, actualSegmentsOutputVCF, actualDenoisedCopyRatiosOutput,
                 ALLOSOMAL_CONTIGS, AUTOSOMAL_REF_COPY_NUMBER);
+        runCommandLine(args);
 
         Assert.assertTrue(intervalsIndex.exists());
         Assert.assertTrue(segmentsIndex.exists());
@@ -136,21 +159,34 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
     public void testDifferentInvalidInput(final int sampleIndex,
                                           final List<String> callShards,
                                           final List<String> modelShards) throws IOException {
-        runToolForSingleSample(callShards, modelShards, sampleIndex,
+        final ArgumentsBuilder args = getArgsForSingleSample(callShards, modelShards, sampleIndex,
                 createTempFile("intervals-output-vcf", ".vcf"),
                 createTempFile("segments-output-vcf", ".vcf"),
                 createTempFile("denoised-copy-ratios-output", ".tsv"),
                 ALLOSOMAL_CONTIGS, AUTOSOMAL_REF_COPY_NUMBER);
+        runCommandLine(args);
     }
 
     @Test(expectedExceptions = IllegalArgumentException.class, groups = {"python"})
     public void testBadAutosomalContigs() {
-        runToolForSingleSample(CALL_SHARDS, MODEL_SHARDS, 0,
+        final ArgumentsBuilder args = getArgsForSingleSample(CALL_SHARDS, MODEL_SHARDS, 0,
                 createTempFile("intervals-output-vcf", ".vcf"),
                 createTempFile("segments-output-vcf", ".vcf"),
                 createTempFile("denoised-copy-ratios-output", ".tsv"),
                 Collections.singletonList("Z"), /* unknown contig */
                 AUTOSOMAL_REF_COPY_NUMBER);
+    }
+
+    @Test(groups = {"python"})
+    public void testQualScoreCalculationWithBreakpoints() {
+        final ArgumentsBuilder args = getArgsWithBreakpoints(CALL_SHARDS, MODEL_SHARDS, 0,
+                createTempFile("intervals-output-vcf", ".vcf"),
+                createTempFile("segments-output-vcf", ".vcf"),
+                createTempFile("denoised-copy-ratios-output", ".tsv"),
+                ALLOSOMAL_CONTIGS, 2, COMBINED_INTERVALS_VCF, CLUSTERED_VCF);
+        runCommandLine(args);
+        //TODO: check stuff
+        final Pair<VCFHeader, List<VariantContext>> output = VariantContextTestUtils.readEntireVCFIntoMemory("segments-output-vcf.vcf");
     }
 
     @DataProvider(name = "differentValidInput")

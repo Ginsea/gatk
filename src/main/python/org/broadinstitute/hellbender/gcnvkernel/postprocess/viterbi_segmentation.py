@@ -34,6 +34,7 @@ class ViterbiSegmentationEngine:
                  sample_metadata_collection: SampleMetadataCollection,
                  sample_index: int,
                  output_path: str,
+                 combined_intervals_vcf: str = None,
                  clustered_vcf: str = None):
         """Initializer.
         
@@ -56,6 +57,7 @@ class ViterbiSegmentationEngine:
         self.sample_metadata_collection = sample_metadata_collection
         self.denoising_config = self._get_denoising_config(model_shards_paths[0])
         self.calling_config = self._get_calling_config(model_shards_paths[0])
+        self.combined_intervals_vcf = combined_intervals_vcf
         self.clustered_vcf = clustered_vcf
 
         # assemble scattered global entities (interval list, log_q_tau_tk)
@@ -171,7 +173,8 @@ class ViterbiSegmentationEngine:
                 copy_number_log_emission_contig_tc, log_trans_contig_tcc,
                 alpha_tc, beta_tc, log_posterior_prob_tc, log_data_likelihood)
 
-            if self.clustered_vcf is None:
+            if self.clustered_vcf is None or self.combined_intervals_vcf is None:
+                # TODO: validate args -- should be both none or neither none
                 # run viterbi algorithm
                 viterbi_path_t_contig = self.theano_viterbi.get_viterbi_path(
                     log_prior_c, log_trans_contig_tcc, copy_number_log_emission_contig_tc)
@@ -180,7 +183,7 @@ class ViterbiSegmentationEngine:
                 segments = self._coalesce_seq_into_segments(viterbi_path_t_contig)
             else:
                 # use events from clustered_vcf
-                segments = io_vcf_parsing.read_sample_segments_and_calls(self.clustered_vcf, self.sample_name, contig, contig_interval_list)
+                segments = io_vcf_parsing.read_sample_segments_and_calls(self.combined_intervals_vcf, self.clustered_vcf, self.sample_name, contig)
 
             # calculate qualities
             for call_copy_number, start_index, end_index in segments:

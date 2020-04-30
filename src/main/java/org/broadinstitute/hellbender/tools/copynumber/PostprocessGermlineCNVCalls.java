@@ -128,6 +128,8 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
     public static final String OUTPUT_DENOISED_COPY_RATIOS_LONG_NAME = "output-denoised-copy-ratios";
     public static final String AUTOSOMAL_REF_COPY_NUMBER_LONG_NAME = "autosomal-ref-copy-number";
     public static final String ALLOSOMAL_CONTIG_LONG_NAME = "allosomal-contig";
+    public static final String COMBINED_INTERVALS_LONG_NAME = "combined-intervals-vcf";
+    public static final String CLUSTERED_FILE_LONG_NAME = "clustered-breakpoints";
 
     @Argument(
             doc = "List of paths to GermlineCNVCaller call directories.",
@@ -170,6 +172,20 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
             optional = true
     )
     private List<String> allosomalContigList;
+
+    @Argument(
+            doc = "Input VCF with combined intervals for all samples",
+            fullName = COMBINED_INTERVALS_LONG_NAME,
+            optional = true
+    )
+    private File combinedIntervalsVCFFile = null;
+
+    @Argument(
+            doc = "VCF with clustered breakpoints and copy number calls for all samples",
+            fullName = CLUSTERED_FILE_LONG_NAME,
+            optional = true
+    )
+    private File clusteredBreakpointsVCFFile = null;
 
     @Argument(
             doc = "Output intervals VCF file.",
@@ -393,7 +409,7 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
         final File pythonScriptOutputPath = IOUtils.createTempDir("gcnv-segmented-calls");
         final boolean pythonScriptSucceeded = executeSegmentGermlineCNVCallsPythonScript(
                 sampleIndex, inputContigPloidyCallsPath, sortedCallsShardPaths, sortedModelShardPaths,
-                pythonScriptOutputPath);
+                combinedIntervalsVCFFile, clusteredBreakpointsVCFFile, pythonScriptOutputPath);
         if (!pythonScriptSucceeded) {
             throw new UserException("Python return code was non-zero.");
         }
@@ -590,6 +606,8 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
                                                                       final File contigPloidyCallsPath,
                                                                       final List<File> sortedCallDirectories,
                                                                       final List<File> sortedModelDirectories,
+                                                                      final File clusteredBreakpointsVCFFile,
+                                                                      final File combinedIntervalsVCFFile,
                                                                       final File pythonScriptOutputPath) {
         /* the inputs to this method are expected to be previously validated */
         try {
@@ -615,6 +633,14 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
         arguments.add(CopyNumberArgumentValidationUtils.getCanonicalPath(pythonScriptOutputPath));
         arguments.add("--sample_index");
         arguments.add(String.valueOf(sampleIndex));
+        if (combinedIntervalsVCFFile != null) {
+            arguments.add("--combined_intervals_vcf");
+            arguments.add(combinedIntervalsVCFFile.toString());
+        }
+        if (clusteredBreakpointsVCFFile != null) {
+            arguments.add("--clustered_vcf");
+            arguments.add(clusteredBreakpointsVCFFile.toString());
+        }
 
         return executor.executeScript(
                 new Resource(SEGMENT_GERMLINE_CNV_CALLS_PYTHON_SCRIPT, PostprocessGermlineCNVCalls.class),
