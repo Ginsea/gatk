@@ -452,6 +452,10 @@ task PostprocessGermlineCNVCalls {
       Array[String]? allosomal_contigs
       Int ref_copy_number_autosomal_contigs
       Int sample_index
+      File? intervals_vcf
+      File? intervals_vcf_index
+      File? clustered_vcf
+      File? clustered_vcf_index
       File? gatk4_jar_override
 
       # Runtime parameters
@@ -519,7 +523,9 @@ task PostprocessGermlineCNVCalls {
             --sample-index ~{sample_index} \
             --output-genotyped-intervals ~{genotyped_intervals_vcf_filename} \
             --output-genotyped-segments ~{genotyped_segments_vcf_filename} \
-            --output-denoised-copy-ratios ~{denoised_copy_ratios_filename}
+            --output-denoised-copy-ratios ~{denoised_copy_ratios_filename} \
+            ~{"--combined-intervals-vcf " + intervals_vcf} \
+            ~{"--clustered-breakpoints " + clustered_vcf}
 
         rm -rf CALLS_*
         rm -rf MODEL_*
@@ -536,7 +542,9 @@ task PostprocessGermlineCNVCalls {
 
     output {
         File genotyped_intervals_vcf = genotyped_intervals_vcf_filename
+        File genotyped_intervals_vcf_index = genotyped_intervals_vcf_filename + ".tbi"
         File genotyped_segments_vcf = genotyped_segments_vcf_filename
+        File genotyped_segments_vcf_index = genotyped_segments_vcf_filename + ".tbi"
         File denoised_copy_ratios = denoised_copy_ratios_filename
     }
 }

@@ -606,8 +606,8 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
                                                                       final File contigPloidyCallsPath,
                                                                       final List<File> sortedCallDirectories,
                                                                       final List<File> sortedModelDirectories,
-                                                                      final File clusteredBreakpointsVCFFile,
                                                                       final File combinedIntervalsVCFFile,
+                                                                      final File clusteredBreakpointsVCFFile,
                                                                       final File pythonScriptOutputPath) {
         /* the inputs to this method are expected to be previously validated */
         try {
