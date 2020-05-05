@@ -13,7 +13,7 @@ workflow JointCallExomeCNVs {
       Array[File]+ intervals_vcf
       Array[File]+ intervals_vcf_indexes
       Array[Array[File]] gcnv_calls_tars
-      Array[Array[File]] gcnv_model_tars
+      Array[File] gcnv_model_tars
       Array[File] calling_configs
       Array[File] denoising_configs
       Array[File] gcnvkernel_version
@@ -38,14 +38,13 @@ workflow JointCallExomeCNVs {
     }
 
     Array[Array[File] ]gcnv_calls_tars_T = transpose(gcnv_calls_tars)
-    Array[Array[File] ]gcnv_model_tars_T = transpose(gcnv_model_tars)
 
     scatter (scatter_index in range(length(segments_vcfs))) {
       call PostprocessGermlineCNVCalls as RecalcQual {
         input:
               entity_id = sub(sub(intervals_vcf[scatter_index], ".vcf.gz", ""), "intervals_output_", ""),
               gcnv_calls_tars = gcnv_calls_tars_T[scatter_index],
-              gcnv_model_tars = gcnv_model_tars_T[scatter_index],
+              gcnv_model_tars = gcnv_model_tars,
               calling_configs = calling_configs,
               denoising_configs = denoising_configs,
               gcnvkernel_version = gcnvkernel_version,
@@ -92,14 +91,19 @@ task JointSegmentation {
     Int? preemptible_attempts
     }
 
+    parameter_meta {
+      segments_vcfs: {localization_optional: true}
+      segments_vcf_indexes: {localization_optional: true}
+    }
+
     Int machine_mem_mb = select_first([mem_gb, 2]) * 1000
     Int command_mem_mb = machine_mem_mb - 500
 
   #NOTE: output has to be gzipped to be read in by pyvcf in the next step
   command <<<
     set -e
-    gatk --java-options "-Xmx${command_mem_mb}m" JointCNVSegmentation \
-    -R ~{ref_fasta} -O clustered.vcf.gz -V ~{write_lines(segments_vcfs)}
+    gatk --java-options "-Xmx~{command_mem_mb}m" JointCNVSegmentation \
+    -R ~{ref_fasta} -O clustered.vcf.gz -V ~{sep=' -V ' segments_vcfs}
     >>>
 
     output {
