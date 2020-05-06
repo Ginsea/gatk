@@ -287,6 +287,7 @@ public final class MultiVariantDataSource implements GATKDataSource<VariantConte
                             " not be obtained for feature input: " + ds.getName() +
                             ". The input may not exist or may not have a valid header");
                 } else {
+                    //This is HORRIFICALLY inefficient and is going to bite me when we do large cohorts
                     dictionary.getSequences().forEach(
                         sourceSequence -> {
                             final String sourceSequenceName = sourceSequence.getSequenceName();
