@@ -103,7 +103,7 @@ task JointSegmentation {
   command <<<
     set -e
     gatk --java-options "-Xmx~{command_mem_mb}m" JointCNVSegmentation \
-    -R ~{ref_fasta} -O clustered.vcf.gz -V ~{sep=' -V ' segments_vcfs}
+    -R ~{ref_fasta} -O clustered.vcf.gz -V ~{sep=' -V ' segments_vcfs} --disable-sequence-dictionary-validation
     >>>
 
     output {
