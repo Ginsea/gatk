@@ -215,10 +215,10 @@ task PostprocessGermlineCNVCalls {
         done
 
         # untar models to MODEL_0, MODEL_1, etc directories and build the command line
-        gcnv_model_tar_array=(${sep=" " gcnv_model_tars})
+        gcnv_model_tar_array=(~{sep=" " gcnv_model_tars})
         model_args=""
-        for index in ${dollar}{!gcnv_model_tar_array[@]}; do
-            gcnv_model_tar=${dollar}{gcnv_model_tar_array[$index]}
+        for index in ${!gcnv_model_tar_array[@]}; do
+            gcnv_model_tar=${gcnv_model_tar_array[$index]}
             mkdir MODEL_$index
             tar xzf $gcnv_model_tar -C MODEL_$index
             model_args="$model_args --model-shard-path MODEL_$index"
@@ -228,12 +228,12 @@ task PostprocessGermlineCNVCalls {
         tar xzf ${contig_ploidy_calls_tar} -C contig-ploidy-calls
 
         gatk --java-options "-Xmx${command_mem_mb}m" PostprocessGermlineCNVCalls \
-            ~calls_args \
-            ~model_args \
+            $calls_args \
+            $model_args \
             ~{sep=" " allosomal_contigs_args} \
             --autosomal-ref-copy-number ~{ref_copy_number_autosomal_contigs} \
             --contig-ploidy-calls contig-ploidy-calls \
-            --sample-index ${sample_index} \
+            --sample-index ~{sample_index} \
             --output-genotyped-intervals ~{genotyped_intervals_vcf_filename} \
             --output-genotyped-segments ~{genotyped_segments_vcf_filename} \
             --output-denoised-copy-ratios ~{denoised_copy_ratios_filename} \
