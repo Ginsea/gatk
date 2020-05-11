@@ -42,7 +42,7 @@ workflow JointCallExomeCNVs {
     scatter (scatter_index in range(length(segments_vcfs))) {
       call PostprocessGermlineCNVCalls as RecalcQual {
         input:
-              entity_id = sub(sub(intervals_vcf[scatter_index], ".vcf.gz", ""), "intervals_output_", ""),
+              entity_id = sub(sub(basename(intervals_vcf[scatter_index]), ".vcf.gz", ""), "intervals_output_", ""),
               gcnv_calls_tars = gcnv_calls_tars_T[scatter_index],
               gcnv_model_tars = gcnv_model_tars,
               calling_configs = calling_configs,
@@ -183,15 +183,16 @@ task PostprocessGermlineCNVCalls {
     Int machine_mem_mb = select_first([mem_gb, 7]) * 1000
     Int command_mem_mb = machine_mem_mb - 1000
 
-    String genotyped_intervals_vcf_filename = "genotyped-intervals-${entity_id}.vcf.gz"
-    String genotyped_segments_vcf_filename = "genotyped-segments-${entity_id}.vcf.gz"
-    String denoised_copy_ratios_filename = "denoised_copy_ratios-${entity_id}.tsv"
+    String genotyped_intervals_vcf_filename = "genotyped-intervals-~{entity_id}.vcf.gz"
+    String genotyped_segments_vcf_filename = "genotyped-segments-~{entity_id}.vcf.gz"
+    String denoised_copy_ratios_filename = "denoised_copy_ratios-~{entity_id}.tsv"
 
     Array[String] allosomal_contigs_args = if defined(allosomal_contigs) then prefix("--allosomal-contig ", select_first([allosomal_contigs])) else []
 
     command <<<
         set -e
-        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk4_jar_override}
+        #I can just build the docker, because I can't remember where the jar is
+        #export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk4_jar_override}
 
         sharded_interval_lists_array=(~{sep=" " sharded_interval_lists})
 
@@ -205,8 +206,8 @@ task PostprocessGermlineCNVCalls {
         calls_args=""
         for index in ${!gcnv_calls_tar_array[@]}; do
             gcnv_calls_tar=${gcnv_calls_tar_array[$index]}
-            mkdir -p CALLS_$index/SAMPLE_${sample_index}
-            tar xzf $gcnv_calls_tar -C CALLS_$index/SAMPLE_${sample_index}
+            mkdir -p CALLS_$index/SAMPLE_~{sample_index}
+            tar xzf $gcnv_calls_tar -C CALLS_$index/SAMPLE_~{sample_index}
             cp ${calling_configs_array[$index]} CALLS_$index/
             cp ${denoising_configs_array[$index]} CALLS_$index/
             cp ${gcnvkernel_version_array[$index]} CALLS_$index/
@@ -225,9 +226,9 @@ task PostprocessGermlineCNVCalls {
         done
 
         mkdir contig-ploidy-calls
-        tar xzf ${contig_ploidy_calls_tar} -C contig-ploidy-calls
+        tar xzf ~{contig_ploidy_calls_tar} -C contig-ploidy-calls
 
-        gatk --java-options "-Xmx${command_mem_mb}m" PostprocessGermlineCNVCalls \
+        gatk --java-options "-Xmx~{command_mem_mb}m" PostprocessGermlineCNVCalls \
             $calls_args \
             $model_args \
             ~{sep=" " allosomal_contigs_args} \
