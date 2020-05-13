@@ -179,14 +179,15 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
 
     @Test(groups = {"python"})
     public void testQualScoreCalculationWithBreakpoints() {
+        final File segmentsOutput = createTempFile("segments-output-vcf", ".vcf");
         final ArgumentsBuilder args = getArgsWithBreakpoints(CALL_SHARDS, MODEL_SHARDS, 0,
                 createTempFile("intervals-output-vcf", ".vcf"),
-                createTempFile("segments-output-vcf", ".vcf"),
+                segmentsOutput,
                 createTempFile("denoised-copy-ratios-output", ".tsv"),
                 ALLOSOMAL_CONTIGS, 2, COMBINED_INTERVALS_VCF, CLUSTERED_VCF);
         runCommandLine(args);
         //TODO: check stuff
-        final Pair<VCFHeader, List<VariantContext>> output = VariantContextTestUtils.readEntireVCFIntoMemory("segments-output-vcf.vcf");
+        final Pair<VCFHeader, List<VariantContext>> output = VariantContextTestUtils.readEntireVCFIntoMemory(segmentsOutput.getAbsolutePath());
     }
 
     @DataProvider(name = "differentValidInput")
