@@ -201,17 +201,19 @@ workflow CNVGermlineCaseScatteredWorkflow {
     }
 
     output {
-        Array[File] preprocessed_intervals = CNVGermlineCaseWorkflow.preprocessed_intervals
+        File preprocessed_intervals = CNVGermlineCaseWorkflow.preprocessed_intervals[0]
         Array[File] read_counts_entity_id = flatten(CNVGermlineCaseWorkflow.read_counts_entity_id)
         Array[File] read_counts = flatten(CNVGermlineCaseWorkflow.read_counts)
         Array[File] sample_contig_ploidy_calls_tars = flatten(CNVGermlineCaseWorkflow.sample_contig_ploidy_calls_tars)
-        Array[Array[Array[File]]] gcnv_calls_tars = CNVGermlineCaseWorkflow.gcnv_calls_tars
-        Array[Array[File]] gcnv_tracking_tars = CNVGermlineCaseWorkflow.gcnv_tracking_tars
-        Array[File] genotyped_intervals_vcf = flatten(CNVGermlineCaseWorkflow.genotyped_intervals_vcf)
-        Array[File] genotyped_segments_vcf = flatten(CNVGermlineCaseWorkflow.genotyped_segments_vcf)
-        Array[File] denoised_copy_ratios = flatten(CNVGermlineCaseWorkflow.denoised_copy_ratios)
+        Array[Array[File]] gcnv_calls_tars = flatten(CNVGermlineCaseWorkflow.gcnv_calls_tars)
+        Array[File] gcnv_tracking_tars = flatten(CNVGermlineCaseWorkflow.gcnv_tracking_tars)
+        Array[File] genotyped_intervals_vcfs = flatten(CNVGermlineCaseWorkflow.genotyped_intervals_vcfs)
+        Array[File] genotyped_intervals_vcf_indexes = flatten(CNVGermlineCaseWorkflow.genotyped_intervals_vcf_indexes)
+        Array[File] genotyped_segments_vcfs = flatten(CNVGermlineCaseWorkflow.genotyped_segments_vcfs)
+        Array[File] genotyped_segments_vcf_indexes = flatten(CNVGermlineCaseWorkflow.genotyped_segments_vcf_indexes)
         Array[File] qc_status_files = flatten(CNVGermlineCaseWorkflow.qc_status_files)
         Array[String] qc_status_strings = flatten(CNVGermlineCaseWorkflow.qc_status_strings)
+        Array[File] denoised_copy_ratios = flatten(CNVGermlineCaseWorkflow.denoised_copy_ratios)
     }
 }
 
