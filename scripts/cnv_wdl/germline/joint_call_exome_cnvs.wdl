@@ -1,8 +1,7 @@
 version 1.0
 
 import "../cnv_common_tasks.wdl" as CNVTasks
-import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/master/wdl/AnnotateChromosome.wdl" as AnnotateVcf
-import "cnv_germline_case_scattered_workflow.wdl" as ScatterWorkflow
+import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.10-beta/wdl/AnnotateChromosome.wdl" as AnnotateVcf
 
 workflow JointCallExomeCNVs {
 
@@ -55,20 +54,21 @@ workflow JointCallExomeCNVs {
     Array[Array[File]] gcnv_calls_tars = read_tsv(gcnv_calls_tars_path_list)
     Array[Array[File]] call_tars_sample_by_shard = transpose(gcnv_calls_tars)
 
+    #create a ped file to use for allosome copy number (e.g. XX, XY)
     call MakePedFile {
       input:
         contig_ploidy_calls_tar = read_lines(contig_ploidy_calls_tar_path_list),
         x_contig_name = x_contig_name
     }
 
-    call ScatterWorkflow.SplitInputArray as SplitSegmentsVcfsList {
+    call CNVTasks.SplitInputArray as SplitSegmentsVcfsList {
         input:
             input_array = segments_vcfs,
             num_inputs_in_scatter_block = num_samples_per_scatter_block,
             gatk_docker = gatk_docker
     }
 
-    call ScatterWorkflow.SplitInputArray as SplitSegmentsIndexesList {
+    call CNVTasks.SplitInputArray as SplitSegmentsIndexesList {
         input:
             input_array = segments_vcf_indexes,
             num_inputs_in_scatter_block = num_samples_per_scatter_block,
@@ -78,6 +78,7 @@ workflow JointCallExomeCNVs {
     Array[Array[String]] split_segments = SplitSegmentsVcfsList.split_array
     Array[Array[String]] split_segments_indexes = SplitSegmentsIndexesList.split_array
 
+    #for more than num_samples_per_scatter_block, do an intermediate combine first
     if (length(split_segments) > 1) {
       scatter (subarray_index in range(length(split_segments))) {
         call JointSegmentation as ScatterJointSegmentation {
@@ -94,6 +95,7 @@ workflow JointCallExomeCNVs {
       }
     }
 
+    #refine breakpoints over all samples
     call JointSegmentation as GatherJointSegmentation {
       input:
         segments_vcfs = select_first([ScatterJointSegmentation.clustered_vcf, segments_vcfs]),
@@ -106,6 +108,8 @@ workflow JointCallExomeCNVs {
         model_intervals = intervals
     }
 
+    #recalculate each sample's quality scores based on new breakpoints and filter low QS or high AF events;
+    #exclude samples with too many events
     scatter (scatter_index in range(length(segments_vcfs))) {
       call CNVTasks.PostprocessGermlineCNVCalls as RecalcQual {
         input:
@@ -137,13 +141,17 @@ workflow JointCallExomeCNVs {
 
     #only put samples that passed QC into the combined VCF
     scatter(idx in range(length(RecalcQual.genotyped_segments_vcf))) {
-      if(SampleQC.qc_status_string[idx] == "PASS") {
+      if (SampleQC.qc_status_string[idx] == "PASS") {
         String subset = RecalcQual.genotyped_segments_vcf[idx]
         String subset_indexes = RecalcQual.genotyped_segments_vcf_index[idx]
+      }
+      if (SampleQC.qc_status_string[idx] != "PASS") {
+        String failed = sub(sub(basename(RecalcQual.genotyped_segments_vcf[idx]), ".vcf.gz", ""), "segments_output_", "")
       }
     }
     Array[String] subset_arr = select_all(subset)
     Array[String] subset_index_arr = select_all(subset_indexes)
+    Array[String] failed_samples = select_all(failed)
 
     call FastCombine {
       input:
@@ -170,6 +178,7 @@ workflow JointCallExomeCNVs {
       File annotated_vcf = Annotate.annotated_vcf
       File annotated_vcf_index = Annotate.annotated_vcf_idx
       Array[String] sample_qc_status_strings = SampleQC.qc_status_string
+      Array[String] failed_samples = failed_samples
     }
 }
 
@@ -241,7 +250,7 @@ task JointSegmentation {
   #NOTE: output has to be gzipped to be read in by pyvcf in the next step
   command <<<
     set -e
-    gatk --java-options "-Xmx~{command_mem_mb}m" JointCNVSegmentation \
+    gatk --java-options "-Xmx~{command_mem_mb}m" JointGermlineCNVSegmentation \
     -R ~{ref_fasta} -O clustered.vcf.gz -V ~{sep=' -V ' segments_vcfs} --disable-sequence-dictionary-validation --model-call-intervals ~{model_intervals} -ped ~{ped_file}
     >>>
 

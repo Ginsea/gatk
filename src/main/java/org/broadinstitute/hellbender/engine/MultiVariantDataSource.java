@@ -60,8 +60,6 @@ public final class MultiVariantDataSource implements GATKDataSource<VariantConte
     private CloseableIterator<VariantContext> currentIterator;
     private SortedSet<String> mergedSamples;
 
-    private boolean skipDictionaryValidation = false;
-
     /**
      * Creates a MultiVariantDataSource backed by the provided FeatureInputs. We will look ahead the specified number of bases
      * during queries that produce cache misses.

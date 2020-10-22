@@ -38,7 +38,7 @@ public class IntegerCopyNumberSegmentCollection extends AbstractSampleLocatableC
         static final TableColumnCollection COLUMNS = new TableColumnCollection((Object[]) values());
     }
 
-    protected static final Function<DataLine, IntegerCopyNumberSegment> INTEGER_COPY_NUMBER_SEGMENT_RECORD_DECODER = dataLine -> {
+    static final Function<DataLine, IntegerCopyNumberSegment> INTEGER_COPY_NUMBER_SEGMENT_RECORD_DECODER = dataLine -> {
         final String contig = dataLine.get(IntegerCopyNumberSegmentTableColumn.CONTIG);
         final int start = dataLine.getInt(IntegerCopyNumberSegmentTableColumn.START);
         final int end = dataLine.getInt(IntegerCopyNumberSegmentTableColumn.END);
@@ -56,7 +56,7 @@ public class IntegerCopyNumberSegmentCollection extends AbstractSampleLocatableC
                 numPoints, qualitySomeCalled, qualityAllCalled, qualityStart, qualityEnd);
     };
 
-    protected static final BiConsumer<IntegerCopyNumberSegment, DataLine> INTEGER_COPY_NUMBER_SEGMENT_RECORD_ENCODER =
+    static final BiConsumer<IntegerCopyNumberSegment, DataLine> INTEGER_COPY_NUMBER_SEGMENT_RECORD_ENCODER =
             (integerCopyNumberSegment, dataLine) ->
                     dataLine.append(integerCopyNumberSegment.getContig())
                             .append(integerCopyNumberSegment.getStart())

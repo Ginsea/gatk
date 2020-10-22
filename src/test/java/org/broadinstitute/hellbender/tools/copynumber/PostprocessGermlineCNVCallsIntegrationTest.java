@@ -15,6 +15,7 @@ import org.broadinstitute.hellbender.testutils.IntegrationTestSpec;
 import org.broadinstitute.hellbender.testutils.VariantContextTestUtils;
 import org.broadinstitute.hellbender.tools.copynumber.gcnv.GermlineCNVSegmentVariantComposer;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
+import org.broadinstitute.hellbender.utils.codecs.xsvLocatableTable.XsvLocatableTableCodec;
 import org.broadinstitute.hellbender.utils.variant.GATKVCFConstants;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
@@ -82,6 +83,7 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
 
     private final List<String> ALLOSOMAL_CONTIGS = Arrays.asList("X", "Y");
 
+    //these are .gz for clustering tool
     private static final List<File> INTERVALS_VCF_CORRECT_OUTPUTS = Arrays.asList(
             new File(TEST_SUB_DIR, "intervals_output_SAMPLE_000.vcf.gz"),
             new File(TEST_SUB_DIR, "intervals_output_SAMPLE_001.vcf.gz"),
@@ -140,6 +142,11 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
         argumentsBuilder.add(PostprocessGermlineCNVCalls.OUTPUT_DENOISED_COPY_RATIOS_LONG_NAME,
                 denoisedCopyRatiosOutput.getAbsolutePath());
 
+        //TODO: fix the sequence dictionaries in the test data interval_list files so we don't have to skip validation
+        argumentsBuilder.add(StandardArgumentDefinitions.DISABLE_SEQUENCE_DICT_VALIDATION_NAME, true);
+        //supply a good sequence dictionary so output is legit
+        argumentsBuilder.add(StandardArgumentDefinitions.SEQUENCE_DICTIONARY_NAME, GATKBaseTest.FULL_HG19_DICT);
+
         return argumentsBuilder;
     }
 
@@ -166,11 +173,11 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
     public void testDifferentValidInput(final int sampleIndex,
                                         final List<String> callShards,
                                         final List<String> modelShards) throws IOException {
-        final File actualIntervalsOutputVCF = createTempFile("intervals-output-vcf-" + sampleIndex, ".vcf");
+        final File actualIntervalsOutputVCF = createTempFile("intervals-output-vcf-" + sampleIndex, ".vcf.gz");
         final File actualSegmentsOutputVCF = createTempFile("segments-output-vcf-" + sampleIndex, ".vcf");
-        final File intervalsIndex = new File(actualIntervalsOutputVCF.getAbsolutePath() + FileExtensions.TRIBBLE_INDEX);
+        final File intervalsIndex = new File(actualIntervalsOutputVCF.getAbsolutePath() + FileExtensions.TABIX_INDEX);
         Assert.assertFalse(intervalsIndex.exists());
-        final File segmentsIndex = new File(actualIntervalsOutputVCF.getAbsolutePath() + FileExtensions.TRIBBLE_INDEX);
+        final File segmentsIndex = new File(actualSegmentsOutputVCF.getAbsolutePath() + FileExtensions.TRIBBLE_INDEX);
         Assert.assertFalse(segmentsIndex.exists());
         final File actualDenoisedCopyRatiosOutput = createTempFile("denoised-copy-ratios-output-" + sampleIndex, ".tsv");
         final File expectedIntervalsOutputVCF = INTERVALS_VCF_CORRECT_OUTPUTS.get(sampleIndex);
@@ -183,13 +190,13 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
 
         Assert.assertTrue(intervalsIndex.exists());
         Assert.assertTrue(segmentsIndex.exists());
-        IntegrationTestSpec.assertEqualTextFiles(actualIntervalsOutputVCF, expectedIntervalsOutputVCF, "##");
+        IntegrationTestSpec.assertEqualTextFiles(actualIntervalsOutputVCF, expectedIntervalsOutputVCF, VCFHeader.METADATA_INDICATOR);
         final VCFHeader intervalsHeader = VariantContextTestUtils.getVCFHeader(actualIntervalsOutputVCF.getAbsolutePath());
         Assert.assertTrue(intervalsHeader.getContigLines().size() > 0);
-        IntegrationTestSpec.assertEqualTextFiles(actualSegmentsOutputVCF, expectedSegmentsOutputVCF, "##");
+        IntegrationTestSpec.assertEqualTextFiles(actualSegmentsOutputVCF, expectedSegmentsOutputVCF, VCFHeader.METADATA_INDICATOR);
         final VCFHeader segmentsHeader = VariantContextTestUtils.getVCFHeader(actualIntervalsOutputVCF.getAbsolutePath());
         Assert.assertTrue(segmentsHeader.getContigLines().size() > 0);
-        IntegrationTestSpec.assertEqualTextFiles(actualDenoisedCopyRatiosOutput, expectedDenoisedCopyRatiosOutput, "##");
+        IntegrationTestSpec.assertEqualTextFiles(actualDenoisedCopyRatiosOutput, expectedDenoisedCopyRatiosOutput, XsvLocatableTableCodec.SAM_FILE_HEADER_LINE_START);
     }
 
     @Test(dataProvider = "differentInvalidInput", expectedExceptions = IllegalArgumentException.class, groups = {"python"})

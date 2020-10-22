@@ -12,7 +12,12 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 
-public class IntegerCopyNumberSegmentCollectionUnitTest extends GATKBaseTest {
+/**
+ * Unit test for {@link IntegerCopyNumberSegmentCollection}.
+ *
+ * @author Mehrtash Babadi &lt;mehrtash@broadinstitute.org&gt;
+ */
+public final class IntegerCopyNumberSegmentCollectionUnitTest extends GATKBaseTest {
     private static final File TEST_SUB_DIR = new File(toolsTestDir, "copynumber/formats/collections");
     public static final File TEST_INTEGER_COPY_NUMBER_SEGMENTS_FILE =
             new File(TEST_SUB_DIR, "test_copy_number_segments.tsv");
@@ -48,7 +53,7 @@ public class IntegerCopyNumberSegmentCollectionUnitTest extends GATKBaseTest {
 
     @Test
     public void testIntegerCopyNumberSegmentCollectionReading() {
-        final NonOverlappingIntegerCopyNumberSegmentCollection collection = new NonOverlappingIntegerCopyNumberSegmentCollection(
+        final IntegerCopyNumberSegmentCollection collection = new IntegerCopyNumberSegmentCollection(
                 TEST_INTEGER_COPY_NUMBER_SEGMENTS_FILE);
         Assert.assertEquals(collection.getRecords(), TEST_INTEGER_COPY_NUMBER_SEGMENTS);
         Assert.assertEquals(collection.getMetadata().getSampleName(), EXPECTED_SAMPLE_NAME);
@@ -56,17 +61,16 @@ public class IntegerCopyNumberSegmentCollectionUnitTest extends GATKBaseTest {
 
     @Test
     public void testWriteRead() {
-        final SampleLocatableMetadata metadata = new NonOverlappingIntegerCopyNumberSegmentCollection(
+        final SampleLocatableMetadata metadata = new IntegerCopyNumberSegmentCollection(
                 TEST_INTEGER_COPY_NUMBER_SEGMENTS_FILE).getMetadata();
-        final NonOverlappingIntegerCopyNumberSegmentCollection collection = new NonOverlappingIntegerCopyNumberSegmentCollection(
+        final IntegerCopyNumberSegmentCollection collection = new IntegerCopyNumberSegmentCollection(
                 metadata, TEST_INTEGER_COPY_NUMBER_SEGMENTS);
         final File tempCollectionFile = createTempFile("integer-copy-number-segments-collection", ".tsv");
         collection.write(tempCollectionFile);
-        final NonOverlappingIntegerCopyNumberSegmentCollection readCollection = new NonOverlappingIntegerCopyNumberSegmentCollection(
+        final IntegerCopyNumberSegmentCollection readCollection = new IntegerCopyNumberSegmentCollection(
                 tempCollectionFile);
         Assert.assertEquals(readCollection.getMetadata().getSampleName(), EXPECTED_SAMPLE_NAME);
         Assert.assertEquals(readCollection.getMetadata(), metadata);
         Assert.assertEquals(readCollection.getRecords(), TEST_INTEGER_COPY_NUMBER_SEGMENTS);
     }
-
 }

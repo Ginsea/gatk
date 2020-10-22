@@ -15,6 +15,7 @@ import org.broadinstitute.hellbender.tools.copynumber.formats.collections.*;
 import org.broadinstitute.hellbender.tools.copynumber.formats.metadata.LocatableMetadata;
 import org.broadinstitute.hellbender.tools.copynumber.formats.metadata.SimpleSampleLocatableMetadata;
 import org.broadinstitute.hellbender.tools.copynumber.formats.records.CopyNumberPosteriorDistribution;
+import org.broadinstitute.hellbender.tools.copynumber.formats.records.IntegerCopyNumberSegment;
 import org.broadinstitute.hellbender.tools.copynumber.formats.records.IntervalCopyNumberGenotypingData;
 import org.broadinstitute.hellbender.tools.copynumber.formats.records.LinearCopyRatio;
 import org.broadinstitute.hellbender.tools.copynumber.gcnv.GermlineCNVIntervalVariantComposer;
@@ -130,14 +131,11 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
     public static final String AUTOSOMAL_REF_COPY_NUMBER_LONG_NAME = "autosomal-ref-copy-number";
     public static final String ALLOSOMAL_CONTIG_LONG_NAME = "allosomal-contig";
     public static final String INPUT_INTERVALS_LONG_NAME = "input-intervals-vcf";
-    public static final String INPUT_DENOISED_COPY_RATIO_LONG_NAME = "input-denoised-copy-ratio";
     public static final String CLUSTERED_FILE_LONG_NAME = "clustered-breakpoints";
     public static final String DUPLICATION_QS_THRESHOLD_LONG_NAME = "duplication-qs-threshold";
     public static final String HET_DEL_QS_THRESHOLD_LONG_NAME = "het-deletion-qs-threshold";
     public static final String HOM_DEL_QS_THRESHOLD_LONG_NAME = "hom-deletion-qs-threshold";
     public static final String SITE_FREQUENCY_THRESHOLD_LONG_NAME = "site-frequency-threshold";
-    public static final String SAMPLE_FILTERED_CALL_COUNT_THRESHOLD = "sample-filtered-call-count-threshold";
-    public static final String SAMPLE_UNFILTERED_CALL_COUNT_THRESHOLD = "sample-unfiltered-call-count-threshold";
 
     @Argument(
             doc = "List of paths to GermlineCNVCaller call directories.",
@@ -309,7 +307,8 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
      */
     @Override
     public SAMSequenceDictionary getBestAvailableSequenceDictionary() {
-        if (sequenceDictionary != null) {
+        if (getMasterSequenceDictionary() != null) {
+            sequenceDictionary = getMasterSequenceDictionary();
             return sequenceDictionary;
         }
         final List<SimpleIntervalCollection> unsortedIntervalCollectionsFromCalls =
@@ -457,16 +456,30 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
         /* parse segments */
         logger.info("Parsing Python output...");
         final File copyNumberSegmentsFile = getCopyNumberSegmentsFile(pythonScriptOutputPath, sampleIndex);
+
+        final List<IntegerCopyNumberSegment> records;
         //if we supply a breakpoints file, then allow overlapping segments
-        final IntegerCopyNumberSegmentCollection integerCopyNumberSegmentCollection = clusteredBreakpointsVCFFile == null ?
-                new NonOverlappingIntegerCopyNumberSegmentCollection(copyNumberSegmentsFile) :
-                new IntegerCopyNumberSegmentCollection(copyNumberSegmentsFile);
-        final String sampleNameFromSegmentCollection = integerCopyNumberSegmentCollection
-                .getMetadata().getSampleName();
-        Utils.validate(sampleNameFromSegmentCollection.equals(sampleName),
-                String.format("Sample name found in the header of copy-number segments file is " +
-                                "different from the expected sample name (found: %s, expected: %s).",
-                        sampleNameFromSegmentCollection, sampleName));
+        if (clusteredBreakpointsVCFFile == null) {
+            final IntegerCopyNumberSegmentCollection integerCopyNumberSegmentCollection
+                    = new IntegerCopyNumberSegmentCollection(copyNumberSegmentsFile);
+            final String sampleNameFromSegmentCollection = integerCopyNumberSegmentCollection
+                    .getMetadata().getSampleName();
+            Utils.validate(sampleNameFromSegmentCollection.equals(sampleName),
+                    String.format("Sample name found in the header of copy-number segments file is " +
+                                    "different from the expected sample name (found: %s, expected: %s).",
+                            sampleNameFromSegmentCollection, sampleName));
+            records = integerCopyNumberSegmentCollection.getRecords();
+        } else {
+            final OverlappingIntegerCopyNumberSegmentCollection integerCopyNumberSegmentCollection
+                    = new OverlappingIntegerCopyNumberSegmentCollection(copyNumberSegmentsFile);
+            final String sampleNameFromSegmentCollection = integerCopyNumberSegmentCollection
+                    .getMetadata().getSampleName();
+            Utils.validate(sampleNameFromSegmentCollection.equals(sampleName),
+                    String.format("Sample name found in the header of copy-number segments file is " +
+                                    "different from the expected sample name (found: %s, expected: %s).",
+                            sampleNameFromSegmentCollection, sampleName));
+            records = integerCopyNumberSegmentCollection.getRecords();
+        }
 
         /* write variants */
         logger.info(String.format("Writing segments VCF file to %s...", outputSegmentsVCFFile.getAbsolutePath()));
@@ -478,7 +491,7 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
                                 ReferenceUtils.createReferenceReader(referenceArguments.getReferenceSpecifier()),
                         dupeQSThreshold, hetDelQSThreshold, homDelQSThreshold, siteFrequencyThreshold, clusteredBreakpointsVCFFile);
         germlineCNVSegmentVariantComposer.composeVariantContextHeader(sequenceDictionary, getDefaultToolVCFHeaderLines());
-        germlineCNVSegmentVariantComposer.writeAll(integerCopyNumberSegmentCollection.getRecords());
+        germlineCNVSegmentVariantComposer.writeAll(records);
         segmentsVCFWriter.close();
     }
 
@@ -680,7 +693,7 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
         arguments.add("--sample_index");
         arguments.add(String.valueOf(sampleIndex));
         if (combinedIntervalsVCFFile != null) {
-            arguments.add("--combined_intervals_vcf");
+            arguments.add("--intervals_vcf");
             arguments.add(combinedIntervalsVCFFile.toString());
         }
         if (clusteredBreakpointsVCFFile != null) {

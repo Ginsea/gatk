@@ -6,6 +6,8 @@ from typing import List, Tuple, Dict, TypeVar, Generator
 
 import numpy as np
 
+import vcf
+
 from .segment_quality_utils import HMMSegmentationQualityCalculator
 from .. import types
 from ..io import io_consts, io_commons, io_denoising_calling, io_intervals_and_counts, io_vcf_parsing
@@ -34,7 +36,7 @@ class ViterbiSegmentationEngine:
                  sample_metadata_collection: SampleMetadataCollection,
                  sample_index: int,
                  output_path: str,
-                 combined_intervals_vcf: str = None,
+                 intervals_vcf: str = None,
                  clustered_vcf: str = None):
         """Initializer.
         
@@ -44,12 +46,14 @@ class ViterbiSegmentationEngine:
             sample_metadata_collection: sample metadata collection (must contain sample being analyzed)
             sample_index: index of the sample in the callset
             output_path: output path for writing segmentation results
+            intervals_vcf: file with single-sample copy number calls for all intervals
             clustered_vcf: file with clustered breakpoints and calls for each sample
         """
         try:
-            self._validate_args(model_shards_paths, calls_shards_paths, sample_metadata_collection, sample_index)
+            self._validate_args(model_shards_paths, calls_shards_paths, sample_metadata_collection, sample_index,
+                                clustered_vcf)
         except AssertionError as ex:
-            raise Exception("Inconsistency detected in the provided model and calls shards.") from ex
+            raise AssertionError("Inconsistency detected in the provided model and calls shards.") from ex
 
         self.sample_index = sample_index
         self.output_path = output_path
@@ -57,7 +61,7 @@ class ViterbiSegmentationEngine:
         self.sample_metadata_collection = sample_metadata_collection
         self.denoising_config = self._get_denoising_config(model_shards_paths[0])
         self.calling_config = self._get_calling_config(model_shards_paths[0])
-        self.combined_intervals_vcf = combined_intervals_vcf
+        self.intervals_vcf = intervals_vcf
         self.clustered_vcf = clustered_vcf
 
         # assemble scattered global entities (interval list, log_q_tau_tk)
@@ -173,8 +177,10 @@ class ViterbiSegmentationEngine:
                 copy_number_log_emission_contig_tc, log_trans_contig_tcc,
                 alpha_tc, beta_tc, log_posterior_prob_tc, log_data_likelihood)
 
-            if self.clustered_vcf is None or self.combined_intervals_vcf is None:
-                # TODO: validate args -- should be both none or neither none
+            if self.clustered_vcf is None or self.intervals_vcf is None:
+                # validate args -- should be both none or neither none
+                if bool(self.clustered_vcf is None) != bool(self.intervals_vcf is None):
+                    raise Exception("If clustered_vcf is provided, then intervals_vcf must be provided.")
                 # run viterbi algorithm
                 viterbi_path_t_contig = self.theano_viterbi.get_viterbi_path(
                     log_prior_c, log_trans_contig_tcc, copy_number_log_emission_contig_tc)
@@ -183,7 +189,7 @@ class ViterbiSegmentationEngine:
                 segments = self._coalesce_seq_into_segments(viterbi_path_t_contig)
             else:
                 # use events from clustered_vcf
-                segments = io_vcf_parsing.read_sample_segments_and_calls(self.combined_intervals_vcf, self.clustered_vcf, self.sample_name, contig)
+                segments = io_vcf_parsing.read_sample_segments_and_calls(self.intervals_vcf, self.clustered_vcf, self.sample_name, contig)
 
             # calculate qualities
             for call_copy_number, start_index, end_index in segments:
@@ -254,7 +260,8 @@ class ViterbiSegmentationEngine:
     def _validate_args(model_shards_paths: List[str],
                        calls_shards_paths: List[str],
                        sample_metadata_collection: SampleMetadataCollection,
-                       sample_index: int):
+                       sample_index: int,
+                       clustered_vcf: str):
         assert len(model_shards_paths) > 0, "At least one model shard must be provided."
         assert len(calls_shards_paths) == len(model_shards_paths),\
             "The number of model shards ({0}) and calls shards ({1}) must match.".format(
@@ -302,7 +309,10 @@ class ViterbiSegmentationEngine:
         assert len(set(scattered_sample_names)) == 1,\
             "The calls shards contain different sample names and/or different number of samples."
 
-        #TODO: validate sample names in clustered_vcf
+        if clustered_vcf is not None:
+            clustered_reader = vcf.Reader(filename=clustered_vcf)
+            assert set(clustered_reader.samples).issuperset(set(scattered_sample_names)), \
+                "The clustered VCF does not contain all samples in the calls shard."
 
         # all samples have ploidy calls in the metadata collection
         sample_names = list(scattered_sample_names[0])

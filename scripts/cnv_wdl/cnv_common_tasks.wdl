@@ -652,6 +652,53 @@ task CollectModelQualityMetrics {
     }
 }
 
+task SplitInputArray {
+    input {
+      Array[String] input_array
+      Int num_inputs_in_scatter_block
+      String gatk_docker
+
+      Int machine_mem_mb = 4000
+      Int disk_space_gb = 20
+      Int cpu = 1
+      Int? preemptible_attempts
+      Boolean use_ssd = false
+    }
+
+    File input_array_file = write_lines(input_array)
+
+    # This tasks takes as input an array of strings and number of columns (num_inputs_in_scatter_block)
+    # and outputs a 2-dimensional reshaped array with same contents and with width equal to num_inputs_in_scatter_block
+    # (with last row potentially having a smaller length than others)
+    command <<<
+        python <<CODE
+        import math
+        with open("~{input_array_file}", "r") as input_array_file:
+            input_array = input_array_file.read().splitlines()
+        num = ~{num_inputs_in_scatter_block}
+        values_to_write = [input_array[num*i:num*i+min(num, len(input_array)-num*i)] for i in range(int(math.ceil(len(input_array)/num)))]
+        with open('input_array_split.tsv', 'w') as outfile:
+            for i in range(len(values_to_write)):
+                current_sub_array = values_to_write[i]
+                for j in range(len(current_sub_array)):
+                    outfile.write(current_sub_array[j] + "\t")
+                outfile.write("\n")
+        CODE
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        memory: machine_mem_mb + " MB"
+        disks: "local-disk " + disk_space_gb + if use_ssd then " SSD" else " HDD"
+        cpu: cpu
+        preemptible: select_first([preemptible_attempts, 5])
+    }
+
+    output {
+        Array[Array[String]] split_array = read_tsv("input_array_split.tsv")
+    }
+}
+
 task ScatterPloidyCallsBySample {
     input {
       File contig_ploidy_calls_tar
@@ -687,7 +734,7 @@ task ScatterPloidyCallsBySample {
         tar -czf sample_${padded_sample_index}.${sample_id}.contig_ploidy_calls.tar.gz -C calls/SAMPLE_${i} .
       done
     >>>
-    
+
     runtime {
         docker: docker
         memory: select_first([mem_gb, 2]) + " GiB"

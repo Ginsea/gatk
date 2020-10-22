@@ -1,20 +1,24 @@
 from unittest import TestCase
+import os
 
 from gcnvkernel.structs.metadata import SampleMetadataCollection
 from gcnvkernel.postprocess.viterbi_segmentation import ViterbiSegmentationEngine
 import gcnvkernel.io.io_metadata as io_metadata
 
 
-class TestViterbiSegmentationEngine(TestCase):
+class test_viterbiSegmentationEngine(TestCase):
     def test__viterbi_segments_generator(self):
 
-        test_sub_dir = "/Users/gauthier/workspaces/gatk/src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
+        current_dir = os.getcwd()
+        test_sub_dir = current_dir + "/src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
+        # for running in IntelliJ
+        # test_sub_dir = current_dir + "/../../../../../../../../src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
         ploidy_calls_path = test_sub_dir + "ploidy-calls/"
         model_shards = (test_sub_dir + "shard_0-model", test_sub_dir + "shard_1-model", test_sub_dir + "shard_2-model")
         calls_shards = (test_sub_dir + "shard_0-calls", test_sub_dir + "shard_1-calls", test_sub_dir + "shard_2-calls")
         sample_index = 0
+        intervals_vcf = test_sub_dir + "intervals_output_SAMPLE_000.vcf.gz"
         output_path = "."
-        combined_intervals_vcf = test_sub_dir + "intervals.combined.vcf.gz"
         clustered_vcf = test_sub_dir + "../clustering/threeSamples.vcf.gz"
 
         sample_metadata_collection: SampleMetadataCollection = SampleMetadataCollection()
@@ -23,33 +27,48 @@ class TestViterbiSegmentationEngine(TestCase):
 
         viterbi_engine = ViterbiSegmentationEngine(
             model_shards, calls_shards, sample_metadata_collection, sample_index, output_path,
-            combined_intervals_vcf, clustered_vcf)
+            intervals_vcf, clustered_vcf)
 
         segments = list(viterbi_engine._viterbi_segments_generator())
-        self.assertTrue(len(segments) == 11)
+        self.assertTrue(len(segments) == 5) #to match the number of VCs in the clustering VCF
         ref_seg_0 = segments[0]
-        self.assertTrue(ref_seg_0.num_points == 102)
-        self.assertTrue(ref_seg_0.start == 68993)
-        self.assertTrue(ref_seg_0.end == 986037)
+        self.assertTrue(ref_seg_0.num_points == 1)
+        self.assertTrue(ref_seg_0.start == 230925)
+        self.assertTrue(ref_seg_0.end == 231288)
         self.assertTrue(ref_seg_0.call_copy_number == 2)
-        self.assertTrue(ref_seg_0.quality_some_called > ref_seg_0.quality_all_called)
+        self.assertTrue(ref_seg_0.quality_some_called - ref_seg_0.quality_all_called < 0.01) #should be the same, but numerical precision
 
         sample_index = 1
+        intervals_vcf = test_sub_dir + "intervals_output_SAMPLE_001.vcf.gz"
         viterbi_engine = ViterbiSegmentationEngine(
             model_shards, calls_shards, sample_metadata_collection, sample_index, output_path,
-            combined_intervals_vcf, clustered_vcf)
+            intervals_vcf, clustered_vcf)
         segments1 = list(viterbi_engine._viterbi_segments_generator())
         self.assertTrue(len(segments1) == len(segments))
-        ref_seg_1 = segments1[0]
-        self.assertTrue(ref_seg_1.num_points == ref_seg_0.num_points)
-        self.assertTrue(ref_seg_1.start == ref_seg_0.start)
-        self.assertTrue(ref_seg_1.end == ref_seg_0.end)
-        self.assertTrue(ref_seg_1.call_copy_number == ref_seg_0.call_copy_number)
-        self.assertTrue(ref_seg_1.quality_some_called != ref_seg_0.quality_some_called)
+        del_seg = segments1[0]
+        self.assertTrue(del_seg.num_points == ref_seg_0.num_points)
+        self.assertTrue(del_seg.start == ref_seg_0.start)
+        self.assertTrue(del_seg.end == ref_seg_0.end)
+        self.assertTrue(del_seg.call_copy_number == 0)
+        self.assertTrue(del_seg.quality_some_called - del_seg.quality_all_called < 0.01)
 
+    def test__sample_name_mismatch(self):
+        current_dir = os.getcwd()
+        test_sub_dir = current_dir + "/src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
+        ploidy_calls_path = test_sub_dir + "ploidy-calls/"
+        model_shards = (test_sub_dir + "shard_0-model", test_sub_dir + "shard_1-model", test_sub_dir + "shard_2-model")
+        calls_shards = (test_sub_dir + "shard_0-calls", test_sub_dir + "shard_1-calls", test_sub_dir + "shard_2-calls")
+        sample_index = 0
+        output_path = "."
+        combined_intervals_vcf = test_sub_dir + "intervals_output_SAMPLE_000.vcf.gz"
+        # any test VCF that doesn't have SAMPLE_000
+        clustered_vcf = test_sub_dir + "../../walkers/sv/JointGermlineCNVSegmentation/NA20533.fragmented.segments.vcf.gz"
 
-    def test_write_copy_number_segments(self):
-        self.fail()
+        sample_metadata_collection: SampleMetadataCollection = SampleMetadataCollection()
+        io_metadata.update_sample_metadata_collection_from_ploidy_determination_calls(
+             sample_metadata_collection, ploidy_calls_path)
 
-    def test__coalesce_seq_into_segments(self):
-        self.fail()
+        with self.assertRaises(AssertionError):
+            viterbi_engine = ViterbiSegmentationEngine(
+                model_shards, calls_shards, sample_metadata_collection, sample_index, output_path,
+                combined_intervals_vcf, clustered_vcf)

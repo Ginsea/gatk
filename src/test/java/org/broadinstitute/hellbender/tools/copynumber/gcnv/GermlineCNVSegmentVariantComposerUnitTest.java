@@ -8,9 +8,8 @@ import htsjdk.variant.variantcontext.writer.VariantContextWriter;
 import org.apache.commons.math3.util.FastMath;
 import org.broadinstitute.hellbender.GATKBaseTest;
 import org.broadinstitute.hellbender.engine.GATKPath;
+import org.broadinstitute.hellbender.tools.copynumber.formats.collections.IntegerCopyNumberSegmentCollection;
 import org.broadinstitute.hellbender.tools.copynumber.formats.collections.IntegerCopyNumberSegmentCollectionUnitTest;
-import org.broadinstitute.hellbender.tools.copynumber.formats.collections.NonOverlappingIntegerCopyNumberSegmentCollection;
-import org.broadinstitute.hellbender.tools.copynumber.formats.collections.NonOverlappingIntegerCopyNumberSegmentCollectionUnitTest;
 import org.broadinstitute.hellbender.tools.copynumber.formats.records.IntegerCopyNumberSegment;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.utils.reference.ReferenceUtils;
@@ -35,7 +34,7 @@ public final class GermlineCNVSegmentVariantComposerUnitTest extends GATKBaseTes
                                        final Set<String> allosomalContigs,
                                        final ReferenceSequenceFile reference) {
         /* read a segments collection */
-        final NonOverlappingIntegerCopyNumberSegmentCollection collection = new NonOverlappingIntegerCopyNumberSegmentCollection(
+        final IntegerCopyNumberSegmentCollection collection = new IntegerCopyNumberSegmentCollection(
                 IntegerCopyNumberSegmentCollectionUnitTest.TEST_INTEGER_COPY_NUMBER_SEGMENTS_FILE);
         final File segmentsOutputVCF = createTempFile("test-write-segments", ".vcf");
         final VariantContextWriter writer = GATKVariantContextUtils.createVCFWriter(segmentsOutputVCF.toPath(),

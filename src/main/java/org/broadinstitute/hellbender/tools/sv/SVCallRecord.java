@@ -79,7 +79,8 @@ public class SVCallRecord implements Feature {
             //only cluster good variants
             final Genotype g = variant.getGenotypes().get(0);
             if (g.isHomRef() || (g.isNoCall() && !g.hasExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT))
-                    || Integer.valueOf((String) g.getExtendedAttribute(GermlineCNVSegmentVariantComposer.QS)) < minQuality) {
+                    || Integer.valueOf((String) g.getExtendedAttribute(GermlineCNVSegmentVariantComposer.QS)) < minQuality
+                    || isNullCall(g)) {
                 return null;
             }
         }
@@ -129,6 +130,18 @@ public class SVCallRecord implements Feature {
         final int length = end - start;
         return new SVCallRecord(startContig, start, startStrand, startContig, end, endStrand, type, length, algorithms,
                 new ArrayList<>(variant.getGenotypes()));
+    }
+
+    /**
+     *
+     * @param g
+     * @return true if this is a call on a missing contig
+     */
+    private static boolean isNullCall(final Genotype g) {
+        return g.hasExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT)
+                && Integer.parseInt(g.getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT).toString()) == 0
+                && g.isNoCall();
+
     }
 
     public SVCallRecord(final String startContig,

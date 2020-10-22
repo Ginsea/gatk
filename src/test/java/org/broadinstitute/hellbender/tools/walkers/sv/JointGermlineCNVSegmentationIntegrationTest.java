@@ -8,6 +8,7 @@ import htsjdk.variant.vcf.VCFHeader;
 import org.apache.commons.lang3.tuple.Pair;
 import org.broadinstitute.hellbender.CommandLineProgramTest;
 import org.broadinstitute.hellbender.GATKBaseTest;
+import org.broadinstitute.hellbender.cmdline.StandardArgumentDefinitions;
 import org.broadinstitute.hellbender.testutils.ArgumentsBuilder;
 import org.broadinstitute.hellbender.testutils.VariantContextTestUtils;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
@@ -17,14 +18,9 @@ import org.testng.annotations.Test;
 
 import java.io.File;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
-import static org.broadinstitute.hellbender.GATKBaseTest.toolsTestDir;
-import static org.broadinstitute.hellbender.testutils.BaseTest.createTempFile;
-import static org.testng.Assert.*;
-
-public class JointCNVSegmentationIntegrationTest extends CommandLineProgramTest {
+public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProgramTest {
     private static final File TEST_SUB_DIR = new File(toolsTestDir, "copynumber/gcnv-postprocess");
 
     private static final List<File> SEGMENTS_VCF_CORRECT_OUTPUTS = Arrays.asList(
@@ -71,34 +67,36 @@ public class JointCNVSegmentationIntegrationTest extends CommandLineProgramTest 
         final ArgumentsBuilder args = new ArgumentsBuilder()
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
-                .add(JointCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "threeSamples.interval_list")
-                .addIntervals(new File(getToolTestDataDir() + "threeSamples.interval_list"));
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "threeSamples.interval_list")
+                .addIntervals(new File(getToolTestDataDir() + "threeSamples.interval_list"))
+                .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "threeSamples.ped");
 
         inputVcfs.forEach(vcf -> args.addVCF(vcf));
 
-        runCommandLine(args, JointCNVSegmentation.class.getSimpleName());
+        runCommandLine(args, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> withQStreshold = VariantContextTestUtils.readEntireVCFIntoMemory(output.getAbsolutePath());
         Assert.assertEquals(withQStreshold.getRight().size(), expectedCountDefault);
         Assert.assertTrue(withQStreshold.getRight().stream().noneMatch(vc -> vc.getContig().equals("1") || vc.getContig().equals("Y")));  //1 and Y are reference on all samples
         Assert.assertTrue(withQStreshold.getRight().stream().noneMatch(vc -> vc.getReference().equals(Allele.REF_N))); //by supplying a reference we can fill in ref bases
+        //TODO: check ALTs and genotypes, tolerances on qualities +/-10
 
         final File output2 = createTempFile("threeSamples.noQSthreshold",".vcf");
 
         final ArgumentsBuilder args2 = new ArgumentsBuilder()
                 .addOutput(output2)
                 .addReference(GATKBaseTest.b37Reference)
-                .add(JointCNVSegmentation.MIN_QUALITY_LONG_NAME, 0)
-                .add(JointCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "threeSamples.interval_list")
-                .addIntervals(new File(getToolTestDataDir() + "threeSamples.interval_list"));
+                .add(JointGermlineCNVSegmentation.MIN_QUALITY_LONG_NAME, 0)
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "threeSamples.interval_list")
+                .addIntervals(new File(getToolTestDataDir() + "threeSamples.interval_list"))
+                .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "threeSamples.ped");
         inputVcfs.forEach(vcf -> args2.addVCF(vcf));
 
-        runCommandLine(args2, JointCNVSegmentation.class.getSimpleName());
+        runCommandLine(args2, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> withoutQStreshold = VariantContextTestUtils.readEntireVCFIntoMemory(output2.getAbsolutePath());
         Assert.assertEquals(withoutQStreshold.getRight().size(), expectedCountNoFilter); //extra variant at X:227988
-
-        //another test to make sure adjacent events with different copy numbers don't get merged/defragmented?
+        //check extra variant, make sure other variants are same
     }
 
     @Test
@@ -109,10 +107,11 @@ public class JointCNVSegmentationIntegrationTest extends CommandLineProgramTest 
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
                 .addVCF(getToolTestDataDir() + "NA20533.fragmented.segments.vcf.gz")
-                .add(JointCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr13.interval_list")
-                .addInterval("13:52951204-115064572");
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr13.interval_list")
+                .addInterval("13:52951204-115064572")
+                .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "NA20533.ped");  //this sample actually appears Turner (X0), but doesn't matter for chr13
 
-        runCommandLine(args, JointCNVSegmentation.class.getSimpleName());
+        runCommandLine(args, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> defragmentedEvents = VariantContextTestUtils.readEntireVCFIntoMemory(output.getAbsolutePath());
         //events get combined into a single event of 62113369 bp
@@ -124,10 +123,11 @@ public class JointCNVSegmentationIntegrationTest extends CommandLineProgramTest 
                 .addOutput(output2)
                 .addReference(GATKBaseTest.b37Reference)
                 .addVCF(getToolTestDataDir() + "adjacentDifferentCN.vcf")
-                .add(JointCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr8snippet.interval_list")
-                .addInterval("8:190726-666104");
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr8snippet.interval_list")
+                .addInterval("8:190726-666104")
+                .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "NA20520.ped");
 
-        runCommandLine(args2, JointCNVSegmentation.class.getSimpleName());
+        runCommandLine(args2, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> notDefragmentedEvents = VariantContextTestUtils.readEntireVCFIntoMemory(output2.getAbsolutePath());
         //events have different copy numbers and don't get merged
@@ -144,12 +144,12 @@ public class JointCNVSegmentationIntegrationTest extends CommandLineProgramTest 
         final ArgumentsBuilder args = new ArgumentsBuilder()
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
-                .add(JointCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr22.interval_list")
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr22.interval_list")
                 .addInterval("22:22,538,114-23,538,437");
 
         inputVcfs.forEach(vcf -> args.addVCF(vcf));
 
-        runCommandLine(args, JointCNVSegmentation.class.getSimpleName());
+        runCommandLine(args, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> overlappingEvents = VariantContextTestUtils.readEntireVCFIntoMemory(output.getAbsolutePath());
         Assert.assertEquals(overlappingEvents.getRight().size(), 6);

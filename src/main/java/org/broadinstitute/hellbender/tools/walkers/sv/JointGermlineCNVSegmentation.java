@@ -1,6 +1,5 @@
 package org.broadinstitute.hellbender.tools.walkers.sv;
 
-import com.google.common.collect.Lists;
 import htsjdk.samtools.SAMSequenceDictionary;
 import htsjdk.samtools.reference.ReferenceSequenceFile;
 import htsjdk.variant.variantcontext.*;
@@ -10,7 +9,6 @@ import htsjdk.variant.vcf.VCFHeader;
 import htsjdk.variant.vcf.VCFHeaderLine;
 import htsjdk.variant.vcf.VCFStandardHeaderLines;
 import org.apache.commons.lang3.tuple.MutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.broadinstitute.barclay.argparser.Argument;
 import org.broadinstitute.barclay.argparser.BetaFeature;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
@@ -19,10 +17,8 @@ import org.broadinstitute.hellbender.cmdline.programgroups.StructuralVariantDisc
 import org.broadinstitute.hellbender.engine.MultiVariantWalkerGroupedOnStart;
 import org.broadinstitute.hellbender.engine.ReadsContext;
 import org.broadinstitute.hellbender.engine.ReferenceContext;
-import org.broadinstitute.hellbender.exceptions.UserException;
 import org.broadinstitute.hellbender.tools.copynumber.PostprocessGermlineCNVCalls;
 import org.broadinstitute.hellbender.tools.copynumber.gcnv.GermlineCNVSegmentVariantComposer;
-import org.broadinstitute.hellbender.tools.copynumber.gcnv.GermlineCNVVariantComposer;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFHeaderLines;
 import org.broadinstitute.hellbender.tools.sv.SVCallRecord;
@@ -38,10 +34,8 @@ import org.broadinstitute.hellbender.utils.samples.SampleDB;
 import org.broadinstitute.hellbender.utils.samples.SampleDBBuilder;
 import org.broadinstitute.hellbender.utils.samples.Sex;
 import org.broadinstitute.hellbender.utils.variant.*;
-import shaded.cloud_nio.com.google.errorprone.annotations.Var;
 
 import java.io.File;
-import java.lang.reflect.Array;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -51,7 +45,7 @@ import java.util.stream.Collectors;
         oneLineSummary = "Combined single-sample segmented gCNV VCFs.",
         programGroup = StructuralVariantDiscoveryProgramGroup.class
 )
-public class JointCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
+public class JointGermlineCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
 
     private SortedSet<String> samples;
     private VariantContextWriter vcfWriter;
@@ -105,7 +99,7 @@ public class JointCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
      * tell the GATK PED parser that the corresponding fields are missing from the ped file.
      *
      */
-    @Argument(fullName=StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, shortName=StandardArgumentDefinitions.PEDIGREE_FILE_SHORT_NAME, doc="Pedigree file for samples", optional=true)
+    @Argument(fullName=StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, shortName=StandardArgumentDefinitions.PEDIGREE_FILE_SHORT_NAME, doc="Pedigree file for samples", optional=false)
     private File pedigreeFile = null;
 
     @Override
@@ -124,14 +118,14 @@ public class JointCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
         sampleDB = initializeSampleDB();
 
         if (sampleDB == null) {
-            logger.warn("No pedigree file supplied for sex genotype calls. Ploidy will be inferred from segments VCF genotype ploidy.");
+            logger.warn("No pedigree file supplied for sex genotype calls. Will attempt to infer ploidy from segments VCF genotype ploidy.");  //note that this only works if there are called variants on the sex chromosomes
         }
 
         final Collection<String> samples = getSamplesForVariants();
         if (samples != null) {
             for (String sample : samples) {
                 if (sampleDB.getSample(sample) == null) {
-                    logger.warn("Sample " + sample + " is missing from the supplied pedigree file. Ploidy will be inferred from segments VCF genotype ploidy.");
+                    logger.warn("Sample " + sample + " is missing from the supplied pedigree file. Will attempt to infer ploidy from segments VCF genotype ploidy."); //note that this only works if there are called variants on the sex chromosomes
                 }
             }
         }
@@ -343,11 +337,6 @@ public class JointCNVSegmentation extends MultiVariantWalkerGroupedOnStart {
                     alleles = GATKSVVariantContextUtils.makeGenotypeAlleles(copyNumber, samplePloidy, vcRefAllele);
                 } else {
                     alleles = g.getAlleles();
-                    for (Allele a : alleles) {
-                        if (a.isReference()) {
-                            a = vcRefAllele;
-                        }
-                    }
                 }
                 genotypeBuilder.alleles(alleles);
                 //check for genotype in VC because we don't want to count overlapping events (in sampleCopyNumbers map) towards AC
