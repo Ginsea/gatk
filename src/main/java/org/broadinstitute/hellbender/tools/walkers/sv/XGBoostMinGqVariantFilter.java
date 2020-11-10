@@ -260,7 +260,7 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
 
     private void bracketFiniteDifferences(final TrioFilterSummary predictSummary,
                                           final int[][] alleleCounts, final int[][] genotypeQualities) {
-        final int[] candidateMinGqs = getCandidateMinGqs(alleleCounts, genotypeQualities, predictSummary.minGq);
+        final int[] candidateMinGqs = getCandidateMinGqs(alleleCounts, genotypeQualities, predictSummary.minGq).toArray();
         final int lastIdx = candidateMinGqs.length - 1;
         final TrioFilterSummary downSummary, middleSummary, upSummary;
         if(candidateMinGqs.length == 0) {

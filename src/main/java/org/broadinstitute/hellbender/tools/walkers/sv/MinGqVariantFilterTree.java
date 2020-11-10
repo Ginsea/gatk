@@ -199,7 +199,7 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
                 return new ArrayList<>();
             } else if(isLeaf()) {
                 if(candidateSplits == null) {
-                    final int[] trainingIndices = getTrainingIndices().stream().mapToInt(i -> i).toArray();
+                    final int[] trainingIndices = getTrainingIndices().stream().mapToInt(Integer::intValue).toArray();
                     final Map<String, double[]> trainingData = getVariantProperties(trainingIndices);
                     final int[] optimalMinGq = getPerVariantOptimalMinGq(trainingIndices);
                     candidateSplits = trainingData.entrySet().stream().map(
@@ -284,7 +284,7 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
         void optimize(final int[] trainingIndices, final int[] validationIndices) {
             final IndexSplit trainingIndexSplit = new IndexSplit(node.getTrainingIndices(), column, splitValue);
             if(printProgress > 4) {
-                System.out.println("\t\t\tSplit column=" + column + ", value=" + splitValue);
+                System.out.println("\t\t\tSplit column=" + column + ", value=" + splitValue + " (gain=" + gain + ")");
                 System.out.println("\t\t\t" + trainingIndexSplit.indicesLow.size() + " low inds, "
                                    + trainingIndexSplit.indicesHigh.size() + " high inds");
             }
@@ -302,9 +302,7 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
                 ++iteration;
                 // Iteratively optimize the minGq of the children
                 int[] minGq = rootNode.predict(trainingIndices);
-                TrioFilterSummary[] trainingFilterSummaries = getTrioFilterSummaries(minGq, trainingIndices);
-                trainFilterQuality = getOptimalMinGq(trainingIndexSplit.getLow(), trainingIndices,
-                                                     trainingFilterSummaries);
+                trainFilterQuality = getOptimalMinGq(trainingIndexSplit.getLow(), trainingIndices, minGq);
                 node.childLow.minGq = trainFilterQuality.minGq;
                 if(printProgress > 4) {
                     System.out.println("\t\t\t" + iteration + ": low split, minGq=" + trainFilterQuality.minGq + ", loss=" + trainFilterQuality.loss);
@@ -315,9 +313,7 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
                 lastLoss = trainFilterQuality.loss;
 
                 minGq = rootNode.predict(trainingIndices);
-                trainingFilterSummaries = getTrioFilterSummaries(minGq, trainingIndices);
-                trainFilterQuality = getOptimalMinGq(trainingIndexSplit.getHigh(), trainingIndices,
-                                                     trainingFilterSummaries);
+                trainFilterQuality = getOptimalMinGq(trainingIndexSplit.getHigh(), trainingIndices, minGq);
                 if(printProgress > 4) {
                     System.out.println("\t\t\t" + iteration + ": high split, minGq=" + trainFilterQuality.minGq + ",loss=" + trainFilterQuality.loss);
                 }
@@ -370,82 +366,6 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
         }
     }
 
-    private TrioFilterSummary getBackgroundFilterSummary(final int[] evalIndices, final int[] trainingIndices,
-                                                         final TrioFilterSummary[] trainingFilterSummaries) {
-        long numPassed = 0;
-        long numDiscoverable = 0;
-        long numMendelian = 0;
-        int evalIndex = 0;
-        int nextRow = evalIndices[evalIndex];
-        if(nextRow < trainingIndices[0]) {
-            throw new GATKException("evalIndices start before training set");
-        }
-        for(int i = 0; i < trainingIndices.length; ++i) {
-            final int trainingIndex = trainingIndices[i];
-            if(nextRow > trainingIndex) {
-                // This index is not in the eval set, add it to background
-                final TrioFilterSummary trainingFilterSummary = trainingFilterSummaries[i];
-                numPassed += trainingFilterSummary.numPassed;
-                numMendelian += trainingFilterSummary.numMendelian;
-                numDiscoverable += maxDiscoverableMendelianAc[trainingIndex];
-            } else {
-                // This index is in the eval set, skip it and point to next eval index
-                ++evalIndex;
-                nextRow = evalIndex < evalIndices.length ? evalIndices[evalIndex] : Integer.MAX_VALUE;
-            }
-        }
-
-        // Don't care about min GQ, so set to 0
-        // Don't care about numFilterable, so pass numDiscoverable in that slot
-        return new TrioFilterSummary(0, numDiscoverable, numPassed, numMendelian);
-    }
-
-    private TrioFilterSummary[] getTrioFilterSummaries(final int[] variantIndices) {
-        return Arrays.stream(variantIndices)
-                .mapToObj(variantIndex -> getTrioFilterSummary(perVariantOptimalMinGq[variantIndex], variantIndex))
-                .toArray(TrioFilterSummary[]::new);
-    }
-
-    private TrioFilterSummary[] getTrioFilterSummaries(final int[] minGq, final int[] variantIndices) {
-        return IntStream.range(0, variantIndices.length).mapToObj(
-                i -> getTrioFilterSummary(minGq[i], variantIndices[i])
-        ).toArray(TrioFilterSummary[]::new);
-    }
-
-    protected FilterQuality getOptimalMinGq(final int[] evalIndices, final int[] trainingIndices,
-                                            final TrioFilterSummary[] trainingFilterSummaries) {
-        if(evalIndices.length == 0) {
-            throw new GATKException("Can't get optimalMinGq from empty rowIndices");
-        }
-        int[] candidateMinGqs = getCandidateMinGqs(evalIndices);
-        if(candidateMinGqs.length == 0) {
-            // minGq doesn't matter for these rows, just return something
-            candidateMinGqs = new int[] {0};
-        }
-        final TrioFilterSummary backgroundFilterSummary = getBackgroundFilterSummary(
-            evalIndices, trainingIndices, trainingFilterSummaries
-        );
-
-        FilterQuality optimalFilter = null;
-        for(final int minGq : candidateMinGqs) {
-            long numDiscoverable = backgroundFilterSummary.numFilterable; // hijacked .numFilterable for this use case
-            long numPassed = backgroundFilterSummary.numPassed;
-            long numMendelian = backgroundFilterSummary.numMendelian;
-            for(final int evalIndex : evalIndices) {
-                numDiscoverable += maxDiscoverableMendelianAc[evalIndex];
-                final TrioFilterSummary trioFilterSummary = getTrioFilterSummary(minGq, evalIndex);
-                numPassed += trioFilterSummary.numPassed;
-                numMendelian += trioFilterSummary.numMendelian;
-            }
-            final FilterQuality candidateFilter = new FilterQuality(minGq, numDiscoverable, numPassed, numMendelian);
-            if(optimalFilter == null || candidateFilter.loss < optimalFilter.loss) {
-                optimalFilter = candidateFilter;
-            }
-        }
-
-        return optimalFilter;
-    }
-
     @Override
     protected boolean needsZScore() { return false; }
 
@@ -466,16 +386,20 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
         rootNode = new DecisionNode((JSONObject) JSONValue.parse(inputStream), null);
     }
 
+    private void printTreeSummary(final double trainingLoss, final double validationLoss, final double testingLoss) {
+        System.out.println("Training. " + rootNode.getNumNodes() + " nodes, max depth = " + rootNode.getMaxDepth());
+        System.out.println("\ttraining loss=" + trainingLoss + ", validation loss=" + validationLoss + ", testing loss=" + testingLoss);
+    }
+
     @Override
     protected void trainFilter() {
         final int[] trainingIndices = getTrainingIndices();
         final int[] validationIndices = getValidationIndices();
         final int[] testingIndices = getTestingIndices();
-        final TrioFilterSummary[] trainingFilterSummaries = getTrioFilterSummaries(trainingIndices);
 
         double trainingLoss;
         if(rootNode == null) {
-            FilterQuality treeFilterQuality = getOptimalMinGq(trainingIndices, trainingIndices, trainingFilterSummaries);
+            FilterQuality treeFilterQuality = getOptimalMinGq(trainingIndices, trainingIndices, null);
             rootNode = new DecisionNode(treeFilterQuality.minGq, null);
             trainingLoss = treeFilterQuality.loss;
             if(printProgress > 0) {
@@ -494,8 +418,7 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
 
         while(true) {
             if(printProgress > 0) {
-                System.out.println("Training. " + rootNode.getNumNodes() + " nodes, max depth = " + rootNode.getMaxDepth());
-                System.out.println("\ttraining loss=" + trainingLoss + ", validation loss=" + validationLoss + ", testing loss=" + testingLoss);
+                printTreeSummary(trainingLoss, validationLoss, testingLoss);
             }
             // Get potentialSplits from current tree, sorted with largest potential gain first
             final List<CandidateSplit> potentialSplits = rootNode.getCandidateSplits()
@@ -512,10 +435,13 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
                 }
                 final CandidateSplit checkSplit = potentialSplits.get(checkCandidate);
                 checkSplit.optimize(trainingIndices, validationIndices);
-                if(checkSplit.trainingLoss >= trainingLoss || checkSplit.validationLoss >= validationLoss) {
+                if(checkSplit.trainingLoss > trainingLoss || checkSplit.validationLoss > validationLoss) {
                     // This split doesn't improve at all, or validate. Never consider it again.
+                    // Note: allow exact equality, which can happen if the splits both have the same minGQ as the parent
+                    //       which may happen if the data needs to be split more than once before improvment can be
+                    //       obtained
                     checkSplit.delete();
-                } else if(checkSplit.trainingLoss < bestLoss) {
+                } else if(checkSplit.trainingLoss <= bestLoss) {
                     // This is the current front-runner
                     selectedSplit = checkSplit;
                     bestLoss = checkSplit.trainingLoss;
@@ -530,6 +456,9 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
             } else {
                 // Take this split.
                 // 1) add split to tree
+                if(printProgress > 2) {
+                    System.out.println("\t\tSelected split " + potentialSplits.indexOf(selectedSplit));
+                }
                 selectedSplit.addToTree();
                 // 2) set current best training and validation losses
                 trainingLoss = selectedSplit.trainingLoss;
@@ -548,6 +477,7 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
                     // save checkpoint to best-performing tree
                     saveModelCheckpoint();
                     roundsSinceBestModel = 0;
+                    bestTestingLoss = testingLoss;
                 }
             }
         }
@@ -567,8 +497,9 @@ public class MinGqVariantFilterTree extends MinGqVariantFilterBase {
         }
 
         if(printProgress > 0) {
-            System.out.println("Finished. " + rootNode.getNumNodes() + " nodes, max depth = " + rootNode.getMaxDepth());
-            System.out.println("\ttraining loss=" + trainingLoss + ", validation loss=" + validationLoss + ", testing loss=" + testingLoss);
+            printTreeSummary(trainingLoss, validationLoss, testingLoss);
+            displayGqHistogram("final predicted minGq distribution",
+                               Arrays.stream(rootNode.predict(trainingIndices)), true);
         }
     }
 }

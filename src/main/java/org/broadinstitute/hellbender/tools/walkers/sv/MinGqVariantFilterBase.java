@@ -51,9 +51,15 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     public File outputFile;
 
     @Argument(fullName="model-file", shortName="m", optional=true,
-              doc="File name for existing filter model. In \"FILTER\" mode, this is a mandatory argument."
+              doc="Path to saved pre-existing filter model. In \"FILTER\" mode, this is a mandatory argument."
                  +" In \"TRAIN\" mode, this is an optional argument for additional training based on an existing model.")
     public File modelFile = null;
+
+    @Argument(fullName="truth-file", shortName="t", optional=true,
+              doc="Path to JSON file with truth data. Keys are sample IDs and values are objects with key \"good\""
+                 +" corresponding to a list of known true variant IDs, and key \"bad\" corresponding to a list of known"
+                 +" bad variant IDs")
+    public File truthFile = null;
 
     private enum RunMode { TRAIN, FILTER }
     @Argument(fullName="mode", doc="Mode of operation: either \"TRAIN\" or \"FILTER\"")
@@ -65,13 +71,13 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     @Argument(fullName="keep-multiallelic", shortName="km", doc="Keep multiallelic variants even if their GQ is less than min-GQ", optional=true)
     public boolean keepMultiallelic = true;
 
-    @Argument(fullName="validation-fraction", shortName="f", doc="Fraction of variants to set aside for cross-validation",
+    @Argument(fullName="validation-proportion", shortName="vp", doc="Proportion of variants to set aside for cross-validation",
               optional=true, minValue=0.0, maxValue=1.0)
-    public double validationFraction = 0.10;
+    public double validationProportion = 0.10;
 
-    @Argument(fullName="test-fraction", shortName="t", doc="Fraction of variants to set aside for testing / early stopping",
+    @Argument(fullName="test-proportion", shortName="tp", doc="Proportion of variants to set aside for testing / early stopping",
               optional=true, minValue=0.0, maxValue=1.0)
-    public double testingFraction = 0.10;
+    public double testingProportion = 0.10;
 
     @Argument(fullName="report-min-gq-filter-threshold", shortName="rf", optional=true, minValue=0.0, maxValue=1.0,
               doc="Add \"" + EXCESSIVE_MIN_GQ_FILTER_KEY + "\" to FILTER if the proportion of samples with calls filtered by "
@@ -107,6 +113,9 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     private static final String MIN_GQ_KEY = "MINGQ";
     private static final String EXCESSIVE_MIN_GQ_FILTER_KEY = "LOW_GQ";
     private static final String MULTIALLELIC_FILTER = "MULTIALLELIC";
+    private static final String NO_EVIDENCE = "NO_EVIDENCE";
+    private static final String GOOD_VARIANT_TRUTH_KEY = "good";
+    private static final String BAD_VARIANT_TRUTH_KEY = "bad";
 
     // properties used to gather main matrix / tensors during apply()
     private Set<Trio> pedTrios = null;
@@ -115,6 +124,11 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     private final List<Integer> svLens = new ArrayList<>();
     private final List<Set<String>> variantFilters = new ArrayList<>();
     private final List<Set<String>> variantEvidence = new ArrayList<>();
+    private Map<String, Set<String>> goodVariantSamples = null;
+    private Map<String, Set<String>> badVariantSamples = null;
+    private Map<Integer, int[]> goodVariantGqs = null;
+    private Map<Integer, int[]> badVariantGqs = null;
+
     // saved initial values
     private List<String> allEvidenceTypes = null;
     private List<String> allFilterTypes = null;
@@ -165,6 +179,42 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         }
     }
 
+    private void getVariantTruthData() {
+        if(truthFile == null) {
+            return;
+        }
+        final JSONObject jsonObject;
+        try (final FileReader fileReader = new FileReader(truthFile)){
+            jsonObject = (JSONObject) JSONValue.parseStrict(fileReader);
+        } catch (IOException | ParseException ioException) {
+            throw new GATKException("Unable to parse JSON from inputStream", ioException);
+        }
+        goodVariantSamples = new HashMap<>();
+        badVariantSamples = new HashMap<>();
+        for(final Map.Entry<String, Object> sampleTruth : jsonObject.entrySet()) {
+            final String sampleId = sampleTruth.getKey();
+            for(final Object variantIdObj : (JSONArray)((JSONObject)sampleTruth).get(GOOD_VARIANT_TRUTH_KEY)) {
+                final String variantId = (String)variantIdObj;
+                if(goodVariantSamples.containsKey(variantId)) {
+                    goodVariantSamples.get(variantId).add(sampleId);
+                } else {
+                    goodVariantSamples.put(variantId, Collections.singleton(sampleId) );
+                }
+            }
+            for(final Object variantIdObj : (JSONArray)((JSONObject)sampleTruth).get(BAD_VARIANT_TRUTH_KEY)) {
+                final String variantId = (String)variantIdObj;
+                if(badVariantSamples.containsKey(variantId)) {
+                    badVariantSamples.get(variantId).add(sampleId);
+                } else {
+                    badVariantSamples.put(variantId, Collections.singleton(sampleId));
+                }
+            }
+        }
+        // prepare to hold data for scoring
+        goodVariantGqs = new HashMap<>();
+        badVariantGqs = new HashMap<>();
+    }
+
     private void initializeVcfWriter() {
         vcfWriter = createVCFWriter(outputFile);
         final Set<VCFHeaderLine> hInfo = new LinkedHashSet<>(getHeaderForVariants().getMetaDataInInputOrder());
@@ -181,6 +231,7 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         loadTrainedModel();  // load model and saved properties stats
         if(runMode == RunMode.TRAIN) {
             getPedTrios();  // get trios from pedigree file
+            getVariantTruthData(); // load variant truth data from JSON file
         } else {
             initializeVcfWriter();  // initialize vcfWriter and write header
             numFilteredGenotypes = 0;
@@ -201,8 +252,22 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         return variantContext.getNAlleles() > 2 || variantContext.getFilters().contains(MULTIALLELIC_FILTER);
     }
 
-    private boolean getVariantIsFilterable(final VariantContext variantContext) {
-        return !(keepMultiallelic && getIsMultiallelic(variantContext));
+    private boolean getVariantIsFilterable(final VariantContext variantContext, final Map<String, Integer> sampleAlleleCounts) {
+        final boolean maybeFilterable = !(keepMultiallelic && getIsMultiallelic(variantContext));
+        if(maybeFilterable) {
+            if(runMode == RunMode.FILTER) {
+                // filter no matter what, because end-user may be interested in minGQ
+                return true;
+            } else {
+                // check if any of the allele counts can be filtered so as not to train on unfilterable variants
+                return pedTrios.stream()
+                        .filter(trio -> mapContainsTrio(sampleAlleleCounts, trio))
+                        .flatMapToInt(trio -> Arrays.stream(getMappedTrioProperties(sampleAlleleCounts, trio)))
+                        .anyMatch(keepHomvar ? ac -> ac == 1 : ac -> ac > 0);
+            }
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -210,22 +275,22 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
      */
     @Override
     public void apply(VariantContext variantContext, ReadsContext readsContext, ReferenceContext ref, FeatureContext featureContext) {
-        if(!getVariantIsFilterable(variantContext)) {
-            // no need to train on unfilterable variants
+        // get per-sample allele counts as a map indexed by sample ID
+        final Map<String, Integer> sampleAlleleCounts = variantContext.getGenotypes().stream().collect(
+                Collectors.toMap(
+                        Genotype::getSampleName,
+                        g -> g.getAlleles().stream().mapToInt(a -> a.isReference() ? 0 : 1).sum()
+                )
+        );
+        if(!getVariantIsFilterable(variantContext, sampleAlleleCounts)) {
+            // no need to train on unfilterable variants, and filtering is trivial
             if(runMode == RunMode.FILTER) {
                 ++numVariants;
                 vcfWriter.add(variantContext); // add variantContext unchanged
             }
             return;
         }
-
-        // get per-sample allele counts as a map indexed by sample ID
-        Map<String, Integer> sampleAlleleCounts = variantContext.getGenotypes().stream().collect(
-                Collectors.toMap(
-                        Genotype::getSampleName,
-                        g -> g.getAlleles().stream().mapToInt(a -> a.isReference() ? 0 : 1).sum()
-                )
-        );
+        ++numVariants;
 
         double alleleFrequency = variantContext.getAttributeAsDouble(VCFConstants.ALLELE_FREQUENCY_KEY, -1.0);
         if(alleleFrequency <= 0) {
@@ -246,37 +311,47 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         }
         svTypes.add(svType);
 
-        int svLen = variantContext.getAttributeAsInt(SVLEN_KEY, Integer.MIN_VALUE);
+        final int svLen = variantContext.getAttributeAsInt(SVLEN_KEY, Integer.MIN_VALUE);
         if(svLen == Integer.MIN_VALUE) {
             throw new GATKException("Missing " + SVLEN_KEY + " for variant " + variantContext.getID());
         }
         svLens.add(svLen);
 
-        Set<String> vcFilters = variantContext.getFilters();
-        variantFilters.add(vcFilters);
+        variantFilters.add(variantContext.getFilters());
 
-        Set<String> vcEvidence = Arrays.stream(variantContext.getAttributeAsString(EVIDENCE_KEY, "NO_EVIDENCE")
-                .replaceAll("[\\[\\] ]", "").split(",")).collect(Collectors.toSet());
+        final Set<String> vcEvidence = Arrays.stream(
+                    variantContext.getAttributeAsString(EVIDENCE_KEY, NO_EVIDENCE)
+                        .replaceAll("[\\[\\] ]", "").split(",")
+            ).map(ev -> ev.equals(".") ? NO_EVIDENCE : ev).collect(Collectors.toSet());
         if(vcEvidence.isEmpty()) {
             throw new GATKException("Missing " + EVIDENCE_KEY + " for variant " + variantContext.getID());
-        } else {
-            for(final String e : vcEvidence) {
-                if(e.startsWith(" ")) {
-                    throw new GATKException("Evidence type \"" + e + "\" starts with ' '. evidence string was " + variantContext.getAttributeAsString(EVIDENCE_KEY, "NO_EVIDENCE"));
-                }
-            }
         }
         variantEvidence.add(vcEvidence);
 
         if(runMode == RunMode.TRAIN) {
             // get per-sample genotype qualities as a map indexed by sample ID
-            Map<String, Integer> sampleGenotypeQualities = variantContext.getGenotypes().stream().collect(
+            final Map<String, Integer> sampleGenotypeQualities = variantContext.getGenotypes().stream().collect(
                     Collectors.toMap(Genotype::getSampleName, Genotype::getGQ)
             );
 
+            if(goodVariantSamples != null) {
+                if(goodVariantSamples.containsKey(variantContext.getID())) {
+                    goodVariantGqs.put(
+                    numVariants - 1,
+                       goodVariantSamples.get(variantContext.getID()).stream().mapToInt(sampleGenotypeQualities::get).toArray()
+                    );
+                }
+                if(badVariantSamples.containsKey(variantContext.getID())) {
+                    badVariantGqs.put(
+                        numVariants - 1,
+                        badVariantSamples.get(variantContext.getID()).stream().mapToInt(sampleGenotypeQualities::get).toArray()
+                    );
+                }
+            }
+
             // get the numTrios x 3 matrix of trio allele counts for this variant, keeping only trios where all samples
             // are present in this VariantContext
-            int[][] trioAlleleCounts = pedTrios.stream()
+            final int[][] trioAlleleCounts = pedTrios.stream()
                     .filter(trio -> mapContainsTrio(sampleAlleleCounts, trio))
                     .map(trio -> getMappedTrioProperties(sampleAlleleCounts, trio))
                     .collect(Collectors.toList())
@@ -285,13 +360,12 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
 
             // get the numTrios x 3 matrix of trio genotype qualities for this variant, keeping only trios where all samples
             // are present in this VariantContext
-            int[][] trioGenotypeQualities = pedTrios.stream()
+            final int[][] trioGenotypeQualities = pedTrios.stream()
                     .filter(trio -> mapContainsTrio(sampleGenotypeQualities, trio))
                     .map(trio -> getMappedTrioProperties(sampleGenotypeQualities, trio))
                     .collect(Collectors.toList()).toArray(new int[0][0]);
             genotypeQualitiesTensor.add(trioGenotypeQualities);
         } else {
-            ++numVariants;
             collectVariantPropertiesMap();
             final double[] variantProperties = propertyNames.stream().mapToDouble(name -> variantPropertiesMap.get(name)[0]).toArray();
             final int minGq = predict(variantProperties);
@@ -499,45 +573,44 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         alleleFrequencies.clear();
     }
 
-    protected int[] getCandidateMinGqs(final int[][] alleleCounts, final int[][] genotypeQualities) {
-        return getCandidateMinGqs(alleleCounts, genotypeQualities, null);
+    private IntStream streamFilterableGq(final IntStream acStream, final IntStream gqStream) {
+        final PrimitiveIterator.OfInt acIterator = acStream.iterator();
+        return gqStream.filter(keepHomvar ? gc -> acIterator.nextInt() == 1 : gc -> acIterator.nextInt() > 0);
     }
 
-    protected int[] getCandidateMinGqs(final int rowIndex) {
-        final int[] flatAlleleCounts = Arrays.stream(alleleCountsTensor.get(rowIndex)).flatMapToInt(Arrays::stream).toArray();
-        final int[] flatGenotypeQualities = Arrays.stream(genotypeQualitiesTensor.get(rowIndex)).flatMapToInt(Arrays::stream).toArray();
-        return getCandidateMinGqs(flatAlleleCounts, flatGenotypeQualities, null);
+    protected IntStream getCandidateMinGqs(final int rowIndex) {
+        final IntStream alleleCountsStream = Arrays.stream(alleleCountsTensor.get(rowIndex)).flatMapToInt(Arrays::stream);
+        final IntStream genotypeQualitiesStream = Arrays.stream(genotypeQualitiesTensor.get(rowIndex)).flatMapToInt(Arrays::stream);
+        return getCandidateMinGqs(alleleCountsStream, genotypeQualitiesStream, null);
     }
 
-    protected int[] getCandidateMinGqs(final int[] rowIndices) {
-        final int[] flatAlleleCounts = Arrays.stream(rowIndices).flatMap(
+    protected IntStream getCandidateMinGqs(final int[] rowIndices) {
+        final IntStream alleleCountsStream = Arrays.stream(rowIndices).flatMap(
                 rowIndex -> Arrays.stream(alleleCountsTensor.get(rowIndex)).flatMapToInt(Arrays::stream)
-        ).toArray();
-        final int[] flatGenotypeQualities = Arrays.stream(rowIndices).flatMap(
+        );
+        final IntStream genotypeQualitiesStream = Arrays.stream(rowIndices).flatMap(
                 rowIndex -> Arrays.stream(genotypeQualitiesTensor.get(rowIndex)).flatMapToInt(Arrays::stream)
-        ).toArray();
-        return getCandidateMinGqs(flatAlleleCounts, flatGenotypeQualities, null);
+        );
+        return getCandidateMinGqs(alleleCountsStream, genotypeQualitiesStream, null);
     }
 
-    protected int[] getCandidateMinGqs(final int[][] alleleCounts, final int[][] genotypeQualities,
-                                       final Integer preexistingCandidateMinGq) {
-        final int[] flatAlleleCounts = Arrays.stream(alleleCounts).flatMapToInt(Arrays::stream).toArray();
-        final int[] flatGenotypeQualities = Arrays.stream(genotypeQualities).flatMapToInt(Arrays::stream).toArray();
-        return getCandidateMinGqs(flatAlleleCounts, flatGenotypeQualities, preexistingCandidateMinGq);
+    protected IntStream getCandidateMinGqs(final int[][] alleleCounts, final int[][] genotypeQualities,
+                                           final Integer preexistingCandidateMinGq) {
+        final IntStream alleleCountsStream = Arrays.stream(alleleCounts).flatMapToInt(Arrays::stream);
+        final IntStream genotypeQualitiesStream = Arrays.stream(genotypeQualities).flatMapToInt(Arrays::stream);
+        return getCandidateMinGqs(alleleCountsStream, genotypeQualitiesStream, preexistingCandidateMinGq);
     }
 
-    protected int[] getCandidateMinGqs(final int[] flatAlleleCounts, final int[] flatGenotypeQualities,
+    protected IntStream getCandidateMinGqs(final IntStream alleleCountsStream, final IntStream genotypeQualitiesStream,
                                        final Integer preexistingCandidateMinGq) {
-        // form list of candate min GQ values that could alter filtering for this variant
-        final List<Integer> candidateGq = IntStream.range(0, flatGenotypeQualities.length)
-                .filter(keepHomvar ? i -> flatAlleleCounts[i] == 1 : i -> flatAlleleCounts[i] > 0)
-                .map(i -> flatGenotypeQualities[i])
-                .sorted()
+        // form list of candidate min GQ values that could alter filtering for this variant
+        final List<Integer> candidateGq = streamFilterableGq(alleleCountsStream, genotypeQualitiesStream)
                 .distinct()
+                .sorted()
                 .boxed()
                 .collect(Collectors.toList());
         if(candidateGq.isEmpty()) {
-            return new int[0];
+            return null;
         }
         // consider filtering out all filterable variants by adding 1 to highest filterable GQ value
         candidateGq.add(1 + candidateGq.get(candidateGq.size() - 1));
@@ -547,7 +620,6 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
             OptionalInt.empty() :
             IntStream.range(0, candidateGq.size())
                     .filter(i -> candidateGq.get(i) >= preexistingCandidateMinGq).findFirst();
-
 
         // These candidate values are as large as they can be without altering filtering results.
         // If possible, move candidates down (midway to next change value) so that inaccuracy in predicting
@@ -565,18 +637,46 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         // remove candidate gq that is redundant with preexistingCandidateMinGq
         if (redundantIdx.isPresent()) {
             candidateGq.remove(redundantIdx.getAsInt());
+            if(candidateGq.isEmpty()) {
+                return null;
+            }
         }
 
         // return array of primitive int
-        return candidateGq.stream().mapToInt(Integer::intValue).toArray();
+        return candidateGq.stream().mapToInt(Integer::intValue);
     }
 
 
     private boolean isMendelian(final int fatherAc, final int motherAc, final int childAc) {
         // child allele counts should not exhibit de-novo mutations nor be missing inherited homvar
-        int minAc = fatherAc / 2 + motherAc / 2;
-        int maxAc = (fatherAc + 1) / 2 + (motherAc + 1) / 2;
+        final int minAc = fatherAc / 2 + motherAc / 2;
+        final int maxAc = (fatherAc > 0 ? 1 : 0) + (motherAc > 0 ? 1 : 0);
         return (minAc <= childAc) && (childAc <= maxAc);
+    }
+
+    private boolean isMendelianKeepHomvar(final int fatherAc, final int motherAc, final int childAc) {
+        // child allele counts should not exhibit de-novo mutations nor be missing inherited homvar
+        final int maxAc = (fatherAc > 0 ? 1 : 0) + (motherAc > 0 ? 1 : 0);
+        return childAc <= maxAc;
+    }
+
+    protected class TrioBackgroundFilterSummary {
+        final long numDiscoverable;
+        final long numPassed;
+        final long numMendelian;
+
+        TrioBackgroundFilterSummary(final long numDiscoverable, final long numPassed, final long numMendelian) {
+            this.numDiscoverable = numDiscoverable;
+            this.numPassed = numPassed;
+            this.numMendelian = numMendelian;
+        }
+
+        TrioBackgroundFilterSummary(final int minGq, final int variantIndex) {
+            final TrioFilterSummary trioFilterSummary = getTrioFilterSummary(minGq, variantIndex);
+            this.numDiscoverable = maxDiscoverableMendelianAc[variantIndex];
+            this.numPassed = trioFilterSummary.numPassed;
+            this.numMendelian = trioFilterSummary.numMendelian;
+        }
     }
 
     static protected class TrioFilterSummary {
@@ -626,7 +726,7 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
                         (fatherAc == 1 ? 1 : 0) + (motherAc == 1 ? 1 : 0) + (childAc == 1 ? 1 : 0);
                 if (numPassedTrio > 0) {
                     numPassed += numPassedTrio;
-                    if (isMendelian(fatherAc, motherAc, childAc)) {
+                    if (isMendelianKeepHomvar(fatherAc, motherAc, childAc)) {
                         numMendelian += numPassedTrio;
                     }
                 }
@@ -689,20 +789,21 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
 
 
     private FilterQuality getOptimalVariantMinGq(final int rowIndex, final FilterQuality previousFilter) {
-        int[] candidateMinGqs = getCandidateMinGqs(rowIndex);
-        if(candidateMinGqs.length == 0) {
+        final IntStream candidateMinGqs = getCandidateMinGqs(rowIndex);
+        if(candidateMinGqs == null) {
             // minGq doesn't matter for this row, so return previous optimal filter or trivial filter
             return previousFilter == null ? new FilterQuality(0, 0, 0, 0) : previousFilter;
         }
 
         final int[][] variantAlleleCounts = alleleCountsTensor.get(rowIndex);
         final int[][] variantGenotypeQualities = genotypeQualitiesTensor.get(rowIndex);
-        final List<TrioFilterSummary> filterSummaries = Arrays.stream(candidateMinGqs)
+        final List<TrioFilterSummary> filterSummaries = candidateMinGqs
+                .parallel()
                 .mapToObj(minGq -> getTrioFilterSummary(minGq, variantAlleleCounts, variantGenotypeQualities))
                 .collect(Collectors.toList());
         if(previousFilter == null) {
             // doing optimization only considering each individual variant
-            return filterSummaries.stream()
+            return filterSummaries.parallelStream()
                     .map(filterSummary -> new FilterQuality(
                             filterSummary.minGq, maxDiscoverableMendelianAc[rowIndex], filterSummary.numPassed, filterSummary.numMendelian)
                     )
@@ -713,12 +814,12 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
             final TrioFilterSummary previousSummary = filterSummaries.stream()
                     .filter(filterSummary -> filterSummary.minGq == previousFilter.minGq)
                     .findFirst().orElseThrow(
-                            () -> new GATKException("Unable to find min GQ that matches previous fiter (" + previousFilter.minGq
-                                                    + ").\nAvailable = " + Arrays.toString(candidateMinGqs))
+                            () -> new GATKException("Unable to find min GQ that matches previous filter ("
+                                                    + previousFilter.minGq + "). This is a bug.")
                     );
             final long otherNumPassed = previousFilter.numPassed - previousSummary.numPassed;
             final long otherNumMendelian = previousFilter.numMendelain - previousSummary.numMendelian;
-            return filterSummaries.stream()
+            return filterSummaries.parallelStream()
                     .map(filterSummary -> new FilterQuality(
                             filterSummary.minGq, numDiscoverableMendelianAc,
                             filterSummary.numPassed + otherNumPassed,
@@ -729,33 +830,84 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         }
     }
 
-    protected FilterQuality getOptimalMinGq(final int[] rowIndices) {
-        if(rowIndices.length == 0) {
-            throw new GATKException("Can't get optimalMinGq from empty rowIndices");
+    private TrioBackgroundFilterSummary getBackgroundFilterSummary(
+            final int[] optimizingIndices, final int[] trainingIndices,
+            int[] minGqs
+    ) {
+        if(trainingIndices == null || trainingIndices.length == 0 || trainingIndices == optimizingIndices) {
+            // Not using any background, return trivial background summary
+            return new TrioBackgroundFilterSummary(0, 0, 0);
         }
-        int[] candidateMinGqs = getCandidateMinGqs(rowIndices);
-        if(candidateMinGqs.length == 0) {
-            // minGq doesn't matter for these rows, just return something
-            candidateMinGqs = new int[] {0};
+        if(minGqs == null) {
+            throw new GATKException("If using non-trivial trainingIndices, must pass non-null minGqs with length equal to trainingIndices.length");
+        }
+        long numPassed = 0;
+        long numDiscoverable = 0;
+        long numMendelian = 0;
+        int optimizeIndex = 0;
+        int nextRow = optimizingIndices[optimizeIndex];
+        if(nextRow < trainingIndices[0]) {
+            throw new GATKException("optimizingIndices start before training set");
+        }
+        for (int i = 0; i < trainingIndices.length; ++i) {
+            final int trainingIndex = trainingIndices[i];
+            if (nextRow > trainingIndex) {
+                // This index is not in the eval set, add it to background
+                final TrioBackgroundFilterSummary trainingFilterSummary =
+                        new TrioBackgroundFilterSummary(minGqs[i], trainingIndex);
+                numPassed += trainingFilterSummary.numPassed;
+                numMendelian += trainingFilterSummary.numMendelian;
+                numDiscoverable += maxDiscoverableMendelianAc[trainingIndex];
+            } else {
+                // This index is in the optimize set, skip it and point to next optimize index
+                ++optimizeIndex;
+                nextRow = optimizeIndex < optimizingIndices.length ? optimizingIndices[optimizeIndex] : Integer.MAX_VALUE;
+            }
         }
 
-        FilterQuality optimalFilter = null;
-        for(final int minGq : candidateMinGqs) {
-            long numDiscoverable = 0;
-            long numMendelian = 0;
-            long numPassed = 0;
-            for(final int rowIndex : rowIndices) {
-                numDiscoverable += maxDiscoverableMendelianAc[rowIndex];
-                final TrioFilterSummary trioFilterSummary = getTrioFilterSummary(minGq, rowIndex);
-                numMendelian += trioFilterSummary.numMendelian;
-                numPassed += trioFilterSummary.numPassed;
-            }
-            final FilterQuality candidateFilter = new FilterQuality(minGq, numDiscoverable, numPassed,numMendelian);
-            if(optimalFilter == null || candidateFilter.loss < optimalFilter.loss) {
-                optimalFilter = candidateFilter;
-            }
+        return new TrioBackgroundFilterSummary(numDiscoverable, numPassed, numMendelian);
+    }
+
+    /**
+     * Optimize minGq as a constant value on optimizeIndices,
+     * @param optimizeIndices
+     * @param trainingIndices
+     * @param minGqs
+     * @return
+     */
+    protected FilterQuality getOptimalMinGq(final int[] optimizeIndices,
+                                            final int[] trainingIndices, final int[] minGqs) {
+        if(optimizeIndices.length == 0) {
+            throw new GATKException("Can't get optimalMinGq from empty rowIndices");
         }
-        return optimalFilter;
+        IntStream candidateMinGqs = getCandidateMinGqs(optimizeIndices);
+        if(candidateMinGqs == null) {
+            // minGq doesn't matter for these rows, just return something
+            candidateMinGqs = IntStream.of(0);
+        }
+
+        final TrioBackgroundFilterSummary backgroundFilterSummary = getBackgroundFilterSummary(
+                optimizeIndices, trainingIndices, minGqs
+        );
+
+        return candidateMinGqs
+                .parallel()
+                .mapToObj(
+                        candidateMinGq -> {
+                            long numDiscoverable = backgroundFilterSummary.numDiscoverable;
+                            long numPassed = backgroundFilterSummary.numPassed;
+                            long numMendelian = backgroundFilterSummary.numMendelian;
+                            for(final int evalIndex : optimizeIndices) {
+                                numDiscoverable += maxDiscoverableMendelianAc[evalIndex];
+                                final TrioFilterSummary trioFilterSummary = getTrioFilterSummary(candidateMinGq, evalIndex);
+                                numPassed += trioFilterSummary.numPassed;
+                                numMendelian += trioFilterSummary.numMendelian;
+                            }
+                            return new FilterQuality(candidateMinGq, numDiscoverable, numPassed, numMendelian);
+                        }
+                )
+                .min(Comparator.comparingDouble(q -> q.loss))
+                .orElseThrow(() -> new GATKException("Could not find optimal minGq filter. This is a bug."));
     }
 
     private void setMaxDiscoverableMendelianAc() {
@@ -764,11 +916,12 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         for(int variantIndex = 0; variantIndex < numVariants; ++variantIndex) {
             final int[][] variantAlleleCounts = alleleCountsTensor.get(variantIndex);
             final int[][] variantGenotypeQualities = genotypeQualitiesTensor.get(variantIndex);
-            final int[] candidateMinGq = getCandidateMinGqs(variantAlleleCounts, variantGenotypeQualities);
+            final IntStream candidateMinGq = getCandidateMinGqs(variantAlleleCounts, variantGenotypeQualities, null);
 
-            maxDiscoverableMendelianAc[variantIndex] = Arrays.stream(candidateMinGq).map(
-                    minGq -> (int)getTrioFilterSummary(minGq, variantAlleleCounts, variantGenotypeQualities).numMendelian
-            ).max().orElse(0);
+            maxDiscoverableMendelianAc[variantIndex] = candidateMinGq == null ? 0 :
+                candidateMinGq.parallel().map(
+                        minGq -> (int)getTrioFilterSummary(minGq, variantAlleleCounts, variantGenotypeQualities).numMendelian
+                ).max().orElse(0);
             numDiscoverableMendelianAc += maxDiscoverableMendelianAc[variantIndex];
         }
     }
@@ -878,37 +1031,34 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
             System.out.println(idx + "\t" + propertyName + "\t" + propertyBaseline.get(propertyName) + "\t" + propertyScale.get(propertyName));
             ++idx;
         }
+        System.out.println("filter types:");
         idx = 0;
         for(final String filterType : allFilterTypes) {
             System.out.println(idx + "\t" + filterType);
             ++idx;
         }
-
+        System.out.println("evidence types:");
         idx = 0;
         for(final String evidenceType : allEvidenceTypes) {
             System.out.println(idx + "\t" + evidenceType);
             ++idx;
         }
+        System.out.println("sv types:");
         idx = 0;
         for(final String svType : allSvTypes) {
             System.out.println(idx + "\t" + svType);
             ++idx;
         }
 
-        final int[] ac = alleleCountsTensor.stream().flatMapToInt(
+        final IntStream acStream = alleleCountsTensor.stream().flatMapToInt(
                 acArr -> Arrays.stream(acArr).flatMapToInt(Arrays::stream)
-        ).toArray();
-        final int[] gq = genotypeQualitiesTensor.stream().flatMapToInt(
-                gqArr -> Arrays.stream(gqArr).flatMapToInt(Arrays::stream)
-        ).toArray();
-
-
-        displayGqHistogram("Variant Gq histogram:",
-                IntStream.range(0, ac.length)
-                    .filter(keepHomvar ? i -> ac[i] == 1 : i -> ac[i] > 0)
-                    .map(i -> gq[i]),
-                true
         );
+        final IntStream gqStream = genotypeQualitiesTensor.stream().flatMapToInt(
+                gqArr -> Arrays.stream(gqArr).flatMapToInt(Arrays::stream)
+        );
+        displayGqHistogram("Filterable alleles Gq histogram:",
+                            streamFilterableGq(acStream, gqStream),true);
+
         System.out.println("########################################");
     }
 
@@ -935,8 +1085,8 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     }
 
     private void setTrainingAndValidationIndices() {
-        final int numValidationIndices = (int)round(validationFraction * numVariants);
-        final int numTestingIndices = (int)round(testingFraction * numVariants);
+        final int numValidationIndices = (int)round(validationProportion * numVariants);
+        final int numTestingIndices = (int)round(testingProportion * numVariants);
         final List<Integer> shuffleIndices = IntStream.range(0, numVariants).boxed().collect(Collectors.toList());
         Collections.shuffle(shuffleIndices, randomGenerator);
 
