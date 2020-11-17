@@ -36,6 +36,20 @@ public class CalculateContaminationIntegrationTest extends CommandLineProgramTes
         };
     }
 
+    @Test
+    public void test(){
+        final String home = "/Volumes/dsde_working/tsato/jukebox/contamination/calculate_contamination/";
+        final String output = home + "tmp.txt";
+        final String postFilterPileup = home + "130376_D4-B0081_NA12892_BC10_JBX-011_E01_pileups_filtered.tsv";
+        final String pileup = home + "130376_D4-B0081_NA12892_BC10_JBX-011_E01_pileups.tsv";
+        final ArgumentsBuilder args = new ArgumentsBuilder()
+                .addInput(pileup)
+                .addOutput(output)
+                .add(CalculateContamination.POST_FILTER_PILEUP_NAME, postFilterPileup);
+
+        runCommandLine(args);
+    }
+
     @Test(dataProvider = "includeHomAlts")
     public void testArtificialData(final boolean includeHomAlts) {
         final RandomGenerator randomGenerator = RandomGeneratorFactory.createRandomGenerator(new Random(111));
