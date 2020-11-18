@@ -1,26 +1,19 @@
 package org.broadinstitute.hellbender.tools.sv;
 
-import htsjdk.samtools.reference.FastaSequenceFile;
-import org.broadinstitute.hellbender.GATKBaseTest;
-import org.broadinstitute.hellbender.utils.GenomeLocParser;
-import org.broadinstitute.hellbender.utils.IntervalUtils;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.testng.Assert;
-import org.testng.annotations.BeforeTest;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 public class SVDepthOnlyCallDefragmenterTest {
 
-    final static SVDepthOnlyCallDefragmenter defaultDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict);
+    private final static SVDepthOnlyCallDefragmenter defaultDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict);
 
-    final private static GenomeLocParser glParser = new GenomeLocParser(SVTestUtils.dict);
-    final static SVDepthOnlyCallDefragmenter singleSampleDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, SVTestUtils.targetIntervals);
+    private final static SVDepthOnlyCallDefragmenter singleSampleDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, SVTestUtils.targetIntervals);
 
     @Test
     public void testFlattenCluster() {
@@ -33,7 +26,9 @@ public class SVDepthOnlyCallDefragmenterTest {
         final SVCallRecordWithEvidence sameBoundsThreeSamples = singleSampleDefragmenter.flattenCluster(Arrays.asList(SVTestUtils.call1, SVTestUtils.sameBoundsSampleMismatch));
         Assert.assertEquals(sameBoundsThreeSamples.getStart(), SVTestUtils.call1.getStart());
         Assert.assertEquals(sameBoundsThreeSamples.getEnd(), SVTestUtils.call1.getEnd());
-        Assert.assertTrue(sameBoundsThreeSamples.getGenotypes().containsAll(SVTestUtils.threeGenotypes));
+        Assert.assertTrue(sameBoundsThreeSamples.getGenotypes().get(0).sameGenotype(SVTestUtils.sample1));
+        Assert.assertTrue(sameBoundsThreeSamples.getGenotypes().get(1).sameGenotype(SVTestUtils.sample2));
+        Assert.assertTrue(sameBoundsThreeSamples.getGenotypes().get(2).sameGenotype(SVTestUtils.sample3));
 
         final SVCallRecordWithEvidence overlapping = singleSampleDefragmenter.flattenCluster(Arrays.asList(SVTestUtils.call1, SVTestUtils.call2));
         Assert.assertEquals(overlapping.getStart(), SVTestUtils.call1.getStart());
@@ -77,7 +72,7 @@ public class SVDepthOnlyCallDefragmenterTest {
     public void testGetClusteringInterval() {
         Assert.assertTrue(defaultDefragmenter.getClusteringInterval(SVTestUtils.leftEdgeCall, null).getStart() > 0);
         Assert.assertTrue(singleSampleDefragmenter.getClusteringInterval(SVTestUtils.leftEdgeCall, null).getStart() > 0);
-        Assert.assertTrue(defaultDefragmenter.getClusteringInterval(SVTestUtils.rightEdgeCall, null).getEnd() == SVTestUtils.chr1Length);
+        Assert.assertEquals(defaultDefragmenter.getClusteringInterval(SVTestUtils.rightEdgeCall, null).getEnd(), SVTestUtils.chr1Length);
         Assert.assertTrue(singleSampleDefragmenter.getClusteringInterval(SVTestUtils.rightEdgeCall, null).getEnd() <= SVTestUtils.chr1Length);  //will be less than chr1length if target intervals are smaller than chr1
 
 

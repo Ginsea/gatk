@@ -259,6 +259,9 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
         Assert.assertTrue(output.getRight().stream().allMatch(vc -> vc.getContig().equals("Y") ? vc.getGenotype(0).isNoCall() :
                 vc.getGenotype(0).isHomRef()));
 
+        Assert.assertTrue(output.getRight().stream().anyMatch(vc -> vc.getContig().equals("Y") &&
+                vc.getGenotype(0).getPloidy() == 1));
+
         Assert.assertTrue(output.getRight().stream().anyMatch(vc -> vc.getContig().equals("X") &&
                 vc.getGenotype(0).getPloidy() == 2));
 
@@ -299,13 +302,14 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
                 vc.isVariant() &&
                 vc.getGenotype(0).getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT).toString().equals("4")));
 
-        //chrY is all reference with ploidy 1
+        //chrY has del with ploidy 1. copy number 0
         Assert.assertTrue(output2.getRight().stream().anyMatch(vc -> vc.getContig().equals("Y") &&
-                !vc.isVariant() &&
-                vc.getAlternateAlleles().size() == 0 &&
-                vc.getGenotypes().get(0).isHomRef() &&
+                vc.isVariant() &&
+                vc.getAlternateAlleles().size() == 1 &&
+                vc.getAlternateAlleles().contains(GATKSVVCFConstants.DEL_ALLELE) &&
+                vc.getGenotypes().get(0).isHomVar() &&
                 vc.getGenotype(0).getPloidy() == 1 &&
-                vc.getGenotype(0).getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT).toString().equals("1")));
+                vc.getGenotype(0).getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT).toString().equals("0")));
 
         //compare sample001 with new QUALs against its single-sample segmented results
         // should have same Q score where breakpoints match, zero if breakpoint was moved in clustering
@@ -341,11 +345,10 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
         Assert.assertTrue(output3.getRight().get(0).getStart() == 230925 && output3.getRight().get(0).getReference().equals(Allele.REF_G));
         Assert.assertTrue(output3.getRight().get(1).getStart() == 233003 && output3.getRight().get(1).getReference().equals(Allele.REF_A));
         Assert.assertTrue(output3.getRight().get(2).getStart() == 1415190 && output3.getRight().get(2).getReference().equals(Allele.REF_T));
-        Assert.assertTrue(output3.getRight().get(3).getStart() == 197963 && output3.getRight().get(3).getReference().equals(Allele.REF_T));
-        Assert.assertTrue(output3.getRight().get(4).getStart() == 223929 && output3.getRight().get(4).getReference().equals(Allele.REF_A));
-        Assert.assertTrue(output3.getRight().get(5).getStart() == 294570 && output3.getRight().get(5).getReference().equals(Allele.REF_G));
+        Assert.assertTrue(output3.getRight().get(3).getStart() == 223929 && output3.getRight().get(3).getReference().equals(Allele.REF_A));
+        Assert.assertTrue(output3.getRight().get(4).getStart() == 230719 && output3.getRight().get(4).getReference().equals(Allele.REF_C));
         //The chrY entry starts in PAR1, so it does get a legit N
-        Assert.assertTrue(output3.getRight().get(6).getStart() == 147963 &&output3.getRight().get(6).getReference().equals(Allele.REF_N));
+        Assert.assertTrue(output3.getRight().get(5).getStart() == 1521543 &&output3.getRight().get(5).getReference().equals(Allele.REF_N));
     }
 
     @DataProvider(name = "differentValidInput")

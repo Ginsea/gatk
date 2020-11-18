@@ -33,7 +33,7 @@ public class GATKSVVCFUtilsUnitTest extends GATKBaseTest {
     private static final Stream<String> expectedFormatHeaderKeysInVCF
             = Stream.of("CN", "CNQ");
     private static final Stream<String> expectedFilterHeaderKeysInVCF
-            = Stream.of("LOW_MQ", "SHORT_ALN");
+            = Stream.of("LOW_MQ", "SHORT_ALN", GATKSVVCFConstants.LOW_QS_SCORE_FILTER_KEY, GATKSVVCFConstants.FREQUENCY_FILTER_KEY);
     static final List<String> expectedHeaderKeysInVCF
             = Stream.of(expectedAltAlleleHeaderKeysInVCF, expectedInfoHeaderKeysInVCF, expectedFormatHeaderKeysInVCF,
                         expectedFilterHeaderKeysInVCF)

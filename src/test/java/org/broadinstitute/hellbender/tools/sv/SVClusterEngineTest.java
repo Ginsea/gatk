@@ -49,14 +49,31 @@ public class SVClusterEngineTest {
         Assert.assertTrue(engine.getClusteringInterval(SVTestUtils.rightEdgeCall, null).getEnd() < SVTestUtils.chr1Length);
 
         final SimpleInterval littleCluster = engine.getClusteringInterval(SVTestUtils.call1, null);
-        //these shouldn't really cluster, but this method doesn't check that
-        final SimpleInterval totalInterval = engine.getClusteringInterval(SVTestUtils.call2, littleCluster);
-        //TODO: add more quantitative checks
-        //min start for combined interval should be greater than the leftmost bound, which is the start of call1
+        //before we check calculations, make sure these actually cluster
+        Assert.assertTrue(engine.clusterTogether(SVTestUtils.call1, SVTestUtils.call1b));
+        final SimpleInterval totalInterval = engine.getClusteringInterval(SVTestUtils.call1b, littleCluster);
+        //min start for combined interval should be less than the leftmost bound, which is the start of call1
         Assert.assertTrue(totalInterval.getStart() < SVTestUtils.call1.getStart());
+        Assert.assertEquals(totalInterval.getStart(), littleCluster.getStart());
         //max start for combined interval should be greater than the leftmost bound, and less than the nearest event end
         Assert.assertTrue(totalInterval.getEnd() > SVTestUtils.call1.getStart());
-        Assert.assertTrue(totalInterval.getEnd() > SVTestUtils.call1.getEnd());
+        Assert.assertTrue(totalInterval.getEnd() < SVTestUtils.call1.getEnd());
+        //quanitative checks
+        Assert.assertEquals(totalInterval.getStart(), SVTestUtils.call1.getEnd() - (SVTestUtils.call1.getLength() / SVClusterEngine.MIN_RECIPROCAL_OVERLAP_DEPTH));
+        Assert.assertEquals(totalInterval.getEnd(), SVTestUtils.call1b.getStart() + (1.0 - SVClusterEngine.MIN_RECIPROCAL_OVERLAP_DEPTH) * SVTestUtils.call1b.getLength());
+
+        //checks for breakend calls, which have different bounds
+        final SimpleInterval pesrCluster1 = engine.getClusteringInterval(SVTestUtils.depthAndStuff, null);
+        Assert.assertEquals(pesrCluster1.getStart(), SVTestUtils.depthAndStuff.getStart() - SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW);
+        Assert.assertEquals(pesrCluster1.getEnd(), SVTestUtils.depthAndStuff.getStart() + SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW);
+        //add an upstream variant
+        final SimpleInterval pesrCluster2 = engine.getClusteringInterval(SVTestUtils.depthAndStuff2, pesrCluster1);
+        Assert.assertEquals(pesrCluster2.getStart(), pesrCluster1.getStart() - SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW);
+        Assert.assertEquals(pesrCluster2.getEnd(), pesrCluster1.getEnd());
+        //add a downstream variant
+        final SimpleInterval pesrCluster3 = engine.getClusteringInterval(SVTestUtils.depthAndStuff3, pesrCluster1);
+        Assert.assertEquals(pesrCluster3.getStart(), pesrCluster1.getStart());
+        Assert.assertEquals(pesrCluster3.getEnd(), SVTestUtils.depthAndStuff3.getStart() + SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW);
     }
 
     @Test

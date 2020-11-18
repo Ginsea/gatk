@@ -19,6 +19,7 @@ import org.testng.annotations.Test;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProgramTest {
     private static final File TEST_SUB_DIR = new File(toolsTestDir, "copynumber/gcnv-postprocess");
@@ -31,7 +32,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
     @DataProvider
     public Object[][] postprocessOutputs() {
         return new Object[][] {
-               new Object[]{SEGMENTS_VCF_CORRECT_OUTPUTS, 5, 6},
+               new Object[]{SEGMENTS_VCF_CORRECT_OUTPUTS, 6, 7},
         };
     }
 
@@ -76,10 +77,58 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
         runCommandLine(args, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> withQStreshold = VariantContextTestUtils.readEntireVCFIntoMemory(output.getAbsolutePath());
+        final List<VariantContext> withThresholdVariants = withQStreshold.getRight();
         Assert.assertEquals(withQStreshold.getRight().size(), expectedCountDefault);
-        Assert.assertTrue(withQStreshold.getRight().stream().noneMatch(vc -> vc.getContig().equals("1") || vc.getContig().equals("Y")));  //1 and Y are reference on all samples
-        Assert.assertTrue(withQStreshold.getRight().stream().noneMatch(vc -> vc.getReference().equals(Allele.REF_N))); //by supplying a reference we can fill in ref bases
-        //TODO: check ALTs and genotypes, tolerances on qualities +/-10
+        Assert.assertTrue(withQStreshold.getRight().stream().noneMatch(vc -> vc.getContig().equals("1")));  //1 is reference on all samples
+        //Note that many of these are the same in PostprocessGermlineCNVCallsIntegrationTest::testQualScoreCalculationWithBreakpoints
+
+        final List<VariantContext> variants = VariantContextTestUtils.streamVcf(output).collect(Collectors.toList());
+        final List<String> variantKeys = variants.stream().map(VariantContextTestUtils::keyForVariant).collect(Collectors.toList());
+
+        final List<String> expectedKeys = Arrays.asList(
+                "2:230925-231288 G*, [<DEL>]",
+                "2:233003-234369 A*, [<DUP>]",
+                "3:1415190-1415854 T*, [<DEL>]",
+                "X:223929-224644 A*, [<DUP>]",
+                "X:230719-230984 C*, [<DUP>]",
+                "Y:1521543-1684258 N*, [<DEL>]");
+
+        Assert.assertTrue(variantKeys.containsAll(expectedKeys));
+
+        VariantContext variant = withThresholdVariants.get(0);
+        validateAlleleCount(variant, 2);
+        Assert.assertTrue(variant.getGenotype("SAMPLE_001").isHomVar());
+        validateCopyNumber(variant, "SAMPLE_001", 0);
+
+        variant = withThresholdVariants.get(1);
+        validateAlleleCount(variant, 1);
+        validateCopyNumber(variant,"SAMPLE_001", 4);
+
+        variant = withThresholdVariants.get(2);
+        validateAlleleCount(variant, 2);
+        validateCopyNumber(variant, "SAMPLE_002", 0);
+
+        variant = withThresholdVariants.get(3);
+        validateAlleleCount(variant, 1);
+        validateCopyNumber(variant, "SAMPLE_001", 3);
+        //this is a male sample, so a dupe on X is phased and doesn't have to be a no-call
+        Assert.assertTrue(variant.getGenotype("SAMPLE_001").getPloidy() == 1 && variant.getGenotype("SAMPLE_001").isHomVar());
+
+        variant = withThresholdVariants.get(4);
+        validateAlleleCount(variant, 1);
+        validateCopyNumber(variant, "SAMPLE_001", 2);
+        //this is a male sample, so a dupe on X is phased and doesn't have to be a no-call
+        Assert.assertTrue(variant.getGenotype("SAMPLE_001").getPloidy() == 1 && variant.getGenotype("SAMPLE_001").isHomVar());
+
+        //The chrY entry starts in PAR1, so it does get a legit N
+        variant = withThresholdVariants.get(5);
+        validateAlleleCount(variant, 1);
+        validateCopyNumber(variant, "SAMPLE_000", 0);
+        validateCopyNumber(variant, "SAMPLE_001", 0);
+        validateCopyNumber(variant, "SAMPLE_002", 0);
+        Assert.assertTrue(variant.getGenotype("SAMPLE_000").getPloidy() == 1 && variant.getGenotype("SAMPLE_000").isNoCall());
+        Assert.assertTrue(variant.getGenotype("SAMPLE_001").getPloidy() == 1 && variant.getGenotype("SAMPLE_001").isHomVar());
+        Assert.assertTrue(variant.getGenotype("SAMPLE_002").getPloidy() == 1 && variant.getGenotype("SAMPLE_002").isNoCall());
 
         final File output2 = createTempFile("threeSamples.noQSthreshold",".vcf");
 
@@ -144,6 +193,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
         final ArgumentsBuilder args = new ArgumentsBuilder()
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
+                .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "overlapping.ped")
                 .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr22.interval_list")
                 .addInterval("22:22,538,114-23,538,437");
 
@@ -219,5 +269,13 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                 }
             }
         }
+    }
+
+    private void validateCopyNumber(final VariantContext variant, final String sampleName, final int expectedCopyNumber) {
+        Assert.assertEquals(Integer.parseInt(variant.getGenotype(sampleName).getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT).toString()), expectedCopyNumber);
+    }
+
+    private void validateAlleleCount(final VariantContext variant, final int expectedAlleleCount) {
+        Assert.assertEquals(Integer.parseInt(variant.getAttributeAsString(VCFConstants.ALLELE_COUNT_KEY,"")), expectedAlleleCount);
     }
 }

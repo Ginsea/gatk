@@ -23,6 +23,7 @@ public final class GermlineCNVCallerIntegrationTest extends CommandLineProgramTe
             .toArray(File[]::new);
     private static final File CONTIG_PLOIDY_CALLS_OUTPUT_DIR = new File(GCNV_SIM_DATA_DIR + "contig-ploidy-calls/");
     private static final File SIM_INTERVAL_LIST_SUBSET_FILE = new File(GCNV_SIM_DATA_DIR + "sim_intervals_subset.interval_list");
+    private static final String POSTPROCESS_SHARD_2_INTERVALS = GCNV_SIM_DATA_DIR + "shard_2.intervals.list";
     private static final File OUTPUT_DIR = createTempDir("test-germline-cnv");
 
     /**
@@ -33,7 +34,7 @@ public final class GermlineCNVCallerIntegrationTest extends CommandLineProgramTe
         final ArgumentsBuilder argsBuilder = new ArgumentsBuilder();
         Arrays.stream(TEST_COUNT_FILES).forEach(argsBuilder::addInput);
         argsBuilder.add(GermlineCNVCaller.RUN_MODE_LONG_NAME, GermlineCNVCaller.RunMode.COHORT.name())
-                .add("L", SIM_INTERVAL_LIST_SUBSET_FILE.getAbsolutePath())
+                .add("L", POSTPROCESS_SHARD_2_INTERVALS)
                 .add(GermlineCNVCaller.CONTIG_PLOIDY_CALLS_DIRECTORY_LONG_NAME,
                         CONTIG_PLOIDY_CALLS_OUTPUT_DIR.getAbsolutePath())
                 .add(StandardArgumentDefinitions.OUTPUT_LONG_NAME, OUTPUT_DIR.getAbsolutePath())

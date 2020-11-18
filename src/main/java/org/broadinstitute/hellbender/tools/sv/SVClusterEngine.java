@@ -1,5 +1,6 @@
 package org.broadinstitute.hellbender.tools.sv;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.primitives.Doubles;
 import htsjdk.samtools.SAMSequenceDictionary;
 import htsjdk.variant.variantcontext.Genotype;
@@ -17,10 +18,14 @@ import java.util.stream.Collectors;
 
 public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvidence> {
 
-    private static final double MIN_RECIPROCAL_OVERLAP_DEPTH = 0.8;
+    @VisibleForTesting
+    public static final double MIN_RECIPROCAL_OVERLAP_DEPTH = 0.8;
+
+    @VisibleForTesting
+    public static final int MAX_BREAKEND_CLUSTERING_WINDOW = 300;
+
     private final double BREAKEND_CLUSTERING_WINDOW_FRACTION = 0.5;
     private final int MIN_BREAKEND_CLUSTERING_WINDOW = 50;
-    private final int MAX_BREAKEND_CLUSTERING_WINDOW = 300;
     private final int MIXED_CLUSTERING_WINDOW = 2000;
     private BreakpointSummaryStrategy breakpointSummaryStrategy;
 
@@ -142,8 +147,8 @@ public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvid
         final int minStart;
         final int maxStart;
         if (isDepthOnlyCall(call)) {
-            minStart = (int) (call.getEnd() - call.getLength() / MIN_RECIPROCAL_OVERLAP_DEPTH); //start of an overlapping event such that call represents (reciprocal overlap) of that event
-            maxStart = (int) (call.getStart() + (1.0 - MIN_RECIPROCAL_OVERLAP_DEPTH) * call.getLength());
+            minStart = (int) (call.getEnd() - call.getLength() / MIN_RECIPROCAL_OVERLAP_DEPTH); //start of an upstream overlapping event such that 100% of call represents MIN_RECIPROCAL_OVERLAP of that event
+            maxStart = (int) (call.getStart() + (1.0 - MIN_RECIPROCAL_OVERLAP_DEPTH) * call.getLength());  //start of a downstream overlapping event such that MIN_RECIPROCAL_OVERLAP of call represents 100% of event
         } else {
             minStart = call.getStart() - MAX_BREAKEND_CLUSTERING_WINDOW;
             maxStart = call.getStart() + MAX_BREAKEND_CLUSTERING_WINDOW;
@@ -152,7 +157,6 @@ public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvid
         if (clusterMinStartInterval == null) {
             return IntervalUtils.trimIntervalToContig(currentContig, minStart, maxStart, dictionary.getSequence(currentContig).getSequenceLength());
         }
-        //NOTE: this is an approximation -- best method would back calculate cluster bounds, then rederive start and end based on call + cluster
         final int newMinStart = Math.min(minStart, clusterMinStartInterval.getStart());
         final int newMaxStart = Math.max(maxStart, clusterMinStartInterval.getEnd());
         return IntervalUtils.trimIntervalToContig(currentContig, newMinStart, newMaxStart, dictionary.getSequence(currentContig).getSequenceLength());

@@ -10,10 +10,7 @@ import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.utils.GenomeLoc;
 import org.broadinstitute.hellbender.utils.GenomeLocParser;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class SVTestUtils {
     final static int chr1Length = 249250621;
@@ -28,6 +25,10 @@ public class SVTestUtils {
     final static int start = 10001;
 
     final static int length = 10000;
+
+    final static int length1b = (int)Math.round(SVClusterEngine.MIN_RECIPROCAL_OVERLAP_DEPTH * length);
+
+    final static int start1b = start + length - length1b;
 
     //separated from end of call1 by defragmenter padding (in bin space, according to bins defined by targetIntervals below)
     final static int start2 = start + length*14/9;
@@ -67,7 +68,12 @@ public class SVTestUtils {
 
     final static Genotype sample1_CN0 = gb2.attribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT, 0).make();
 
-    final static Genotype sample2 = GenotypeBuilder.create("sample2", Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_STRING_DUP +">", false)));
+    final static Map<String, Object> sample2AttributeMap = Collections.singletonMap(GATKSVVCFConstants.COPY_NUMBER_FORMAT, 3);
+
+    final static Map<String, Object> sample3AttributeMap = Collections.singletonMap(GATKSVVCFConstants.COPY_NUMBER_FORMAT, 0);
+
+    final static Genotype sample2 = GenotypeBuilder.create("sample2",
+            Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_STRING_DUP +">", false)), sample2AttributeMap);
 
     final static SVCallRecordWithEvidence rightEdgeCall = new SVCallRecordWithEvidence("chr1", chr1Length - 99, true,
             "chr1", chr1Length, true,
@@ -93,6 +99,13 @@ public class SVTestUtils {
     final static SVCallRecordWithEvidence call1 = new SVCallRecordWithEvidence("chr1", start, true,
             "chr1", start + length -1, true,
             StructuralVariantType.CNV, length,
+            Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
+            Arrays.asList(sample1, sample2),
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    final static SVCallRecordWithEvidence call1b = new SVCallRecordWithEvidence("chr1", start1b, true,
+            "chr1", start1b + length1b + 1, true,
+            StructuralVariantType.CNV, length1b,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
             Arrays.asList(sample1, sample2),
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
@@ -132,7 +145,8 @@ public class SVTestUtils {
             Arrays.asList(sample1_CN0),
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 
-    final static Genotype sample3 = GenotypeBuilder.create("sample3", Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_STRING_DEL +">", false)));
+    final static Genotype sample3 = GenotypeBuilder.create("sample3",
+            Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_STRING_DEL +">", false)), sample3AttributeMap);
 
     final static SVCallRecordWithEvidence sameBoundsSampleMismatch = new SVCallRecordWithEvidence("chr1", start, true,
             "chr1", start + length -1, true,
@@ -154,6 +168,14 @@ public class SVTestUtils {
     static final SVCallRecordWithEvidence depthAndStuff = new SVCallRecordWithEvidence("chr1", 10000, true, "chr1", 20000, true,
                     StructuralVariantType.CNV, 10001, Arrays.asList("depth", "PE"), Collections.singletonList(sample2),
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    static final SVCallRecordWithEvidence depthAndStuff2 = new SVCallRecordWithEvidence("chr1", 10000 - SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW, true, "chr1", 20000, true,
+            StructuralVariantType.CNV, 10001 + SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW, Arrays.asList("depth", "PE"), Collections.singletonList(sample2),
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    static final SVCallRecordWithEvidence depthAndStuff3 = new SVCallRecordWithEvidence("chr1", 10000 + SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW, true, "chr1", 20000, true,
+            StructuralVariantType.CNV, 10001 - SVClusterEngine.MAX_BREAKEND_CLUSTERING_WINDOW, Arrays.asList("depth", "PE"), Collections.singletonList(sample2),
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 
     final static SVCallRecordWithEvidence overlapsCall1 = new SVCallRecordWithEvidence("chr1", start3, true,
             "chr1", start3 + length -1, true,
