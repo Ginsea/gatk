@@ -1,12 +1,19 @@
 from unittest import TestCase
+import os
 import gcnvkernel.io.io_vcf_parsing as io
 
 
 class test_io_vcf_parsing(TestCase):
     def test_read_sample_segments_and_calls(self):
 
-        clustered_vcf = '/Users/gauthier/workspaces/gCNVpipeline/1000G/clustered.latest.vcf.gz'
-        pesky_intervals_vcf = '/Users/gauthier/workspaces/gCNVpipeline/1000G/genotyped-intervals-HG00099.mapped.ILLUMINA.bwa.GBR.exome.20130415.bam.cram.vcf.gz'
+        current_dir = os.getcwd()
+        #for GATK PythonUnitTestRunner/Java tests
+        test_sub_dir = current_dir + "/src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
+        # for running in IntelliJ/Python tests
+        # test_sub_dir = current_dir + "/../../../../../../../../src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
+
+        clustered_vcf = test_sub_dir + 'clustered.1000G.vcf.gz'
+        pesky_intervals_vcf = test_sub_dir + 'genotyped-intervals-HG00099.mapped.ILLUMINA.bwa.GBR.exome.20130415.bam.cram.vcf.gz'
         pesky_sample_name = 'HG00099'
         contig = '14'
         debug_path = io.read_sample_segments_and_calls(pesky_intervals_vcf, clustered_vcf, pesky_sample_name, contig)

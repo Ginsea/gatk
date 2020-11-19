@@ -41,7 +41,6 @@ def read_sample_segments_and_calls(intervals_vcf: str,
     try:
         segments_iter = iter(segments.fetch(contig))
     except ValueError:
-        print('WARN: no segments found on contig {0}'.format(contig))
         return path
     else:
         segments_rec = next(segments_iter)

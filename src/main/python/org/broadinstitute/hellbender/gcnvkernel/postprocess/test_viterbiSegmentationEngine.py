@@ -10,8 +10,9 @@ class test_viterbiSegmentationEngine(TestCase):
     def test__viterbi_segments_generator(self):
 
         current_dir = os.getcwd()
+        #for GATK PythonUnitTestRunner/Java tests
         test_sub_dir = current_dir + "/src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
-        # for running in IntelliJ
+        # for running in IntelliJ/Python tests
         # test_sub_dir = current_dir + "/../../../../../../../../src/test/resources/org/broadinstitute/hellbender/tools/copynumber/gcnv-postprocess/"
         ploidy_calls_path = test_sub_dir + "ploidy-calls/"
         model_shards = (test_sub_dir + "shard_0-model", test_sub_dir + "shard_1-model", test_sub_dir + "shard_2-model")
@@ -30,7 +31,7 @@ class test_viterbiSegmentationEngine(TestCase):
             intervals_vcf, clustered_vcf)
 
         segments = list(viterbi_engine._viterbi_segments_generator())
-        self.assertTrue(len(segments) == 5) #to match the number of VCs in the clustering VCF
+        self.assertTrue(len(segments) == 6) #to match the number of VCs in the clustering VCF
         ref_seg_0 = segments[0]
         self.assertTrue(ref_seg_0.num_points == 1)
         self.assertTrue(ref_seg_0.start == 230925)

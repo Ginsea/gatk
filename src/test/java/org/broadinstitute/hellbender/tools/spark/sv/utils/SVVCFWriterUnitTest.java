@@ -82,6 +82,6 @@ public class SVVCFWriterUnitTest extends GATKBaseTest {
         final List<String> headerKeys = vcfHeader.getIDHeaderLines().stream().map(VCFIDHeaderLine::getID).sorted().collect(Collectors.toList());
         Assert.assertTrue(headerKeys.remove(VCFConstants.END_KEY));
         Assert.assertTrue(headerKeys.removeAll(refContigs));
-        Assert.assertEquals(headerKeys, GATKSVVCFUtilsUnitTest.expectedHeaderKeysInVCF);
+        Assert.assertEquals(headerKeys, GATKSVVCFUtilsUnitTest.allExpectedSVHeaderKeys);
     }
 }
