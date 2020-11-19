@@ -33,11 +33,15 @@ public class GATKSVVCFUtilsUnitTest extends GATKBaseTest {
     private static final Stream<String> expectedFormatHeaderKeysInVCF
             = Stream.of("CN", "CNQ");
     private static final Stream<String> expectedFilterHeaderKeysInVCF
-            = Stream.of("LOW_MQ", "SHORT_ALN", GATKSVVCFConstants.LOW_QS_SCORE_FILTER_KEY, GATKSVVCFConstants.FREQUENCY_FILTER_KEY);
+            = Stream.of(ASSEMBLY_BASED_VARIANT_MQ_FILTER_KEY, ASSEMBLY_BASED_VARIANT_ALN_LENGTH_FILTER_KEY);
+    private static final Stream<String> expectedGCNVFilterHeaderKeysInVCF
+            = Stream.of(LOW_QS_SCORE_FILTER_KEY, FREQUENCY_FILTER_KEY);
     static final List<String> expectedHeaderKeysInVCF
             = Stream.of(expectedAltAlleleHeaderKeysInVCF, expectedInfoHeaderKeysInVCF, expectedFormatHeaderKeysInVCF,
                         expectedFilterHeaderKeysInVCF)
             .flatMap(i->i).sorted().collect(Collectors.toList());
+    static final List<String> allExpectedSVHeaderKeys
+            = Stream.of(expectedHeaderKeysInVCF.stream(), expectedGCNVFilterHeaderKeysInVCF).flatMap(i->i).sorted().collect(Collectors.toList());
 
     @Test(groups = "sv")
     public void testVCFConstants() {
@@ -64,7 +68,7 @@ public class GATKSVVCFUtilsUnitTest extends GATKBaseTest {
 
         Assert.assertEquals(
                 Stream.of(infoHeaders, altAlleleHeaders, formatHeaders, filterHeaders).flatMap(i -> i).sorted().collect(Collectors.toList()),
-                expectedHeaderKeysInVCF);
+                allExpectedSVHeaderKeys);
     }
 
     @DataProvider(name = "svVcfFiles")

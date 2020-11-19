@@ -123,7 +123,7 @@ public class SVClusterEngine extends LocatableClusterEngine<SVCallRecordWithEvid
 
     @Override
     protected boolean clusterTogether(final SVCallRecordWithEvidence a, final SVCallRecordWithEvidence b) {
-        //if (!a.getType().equals(b.getType())) return false;  //TODO: do we need to keep dels and dupes separate?
+        if (a.isCNV() != b.isCNV()) { return false;}  //DELs and DUPs are separate types, but can still cluster
         final boolean depthOnlyA = isDepthOnlyCall(a);
         final boolean depthOnlyB = isDepthOnlyCall(b);
         if (depthOnlyA && depthOnlyB) {

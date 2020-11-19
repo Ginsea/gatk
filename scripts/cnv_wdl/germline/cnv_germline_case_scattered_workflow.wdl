@@ -13,6 +13,7 @@
 version 1.0
 
 import "cnv_germline_case_workflow.wdl" as GermlineCNVCaseWorkflow
+import "../cnv_common_tasks.wdl" as CNVTasks
 
 workflow CNVGermlineCaseScatteredWorkflow {
 

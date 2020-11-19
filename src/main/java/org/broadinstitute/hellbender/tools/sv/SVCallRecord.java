@@ -210,6 +210,10 @@ public class SVCallRecord implements Feature {
         return type;
     }
 
+    public boolean isCNV() {
+        return type == StructuralVariantType.CNV || type == StructuralVariantType.DEL || type == StructuralVariantType.DUP;
+    }
+
     public int getLength() {
         return length;
     }
