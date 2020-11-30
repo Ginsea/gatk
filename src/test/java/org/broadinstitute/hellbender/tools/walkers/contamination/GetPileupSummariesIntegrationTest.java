@@ -17,6 +17,23 @@ public class GetPileupSummariesIntegrationTest extends CommandLineProgramTest {
     private static final File NA12878 = new File(largeFileTestDir, "CEUTrio.HiSeq.WGS.b37.NA12878.20.21.bam");
 
     @Test
+    public void testTakuto(){
+        final String home = "/Volumes/dsde_working/tsato/jukebox/contamination/calculate_contamination/improvement/";
+        final File cram = new File("/Volumes/dsde_working/tsato/jukebox/contamination/bam/130401_D4-B0096_NA24695_BC10_JBX-014_C01.cram");
+        final File exac = new File("/Volumes/dsde_working/tsato/jukebox/contamination/small_exac_common_3.hg38.vcf.gz");
+        final File out = new File(home + "tmp.txt");
+        final String hg38 = "/Volumes/seq_references/Homo_sapiens_assembly38/v0/Homo_sapiens_assembly38.fasta";
+
+        final ArgumentsBuilder args = new ArgumentsBuilder()
+                .addReference(hg38)
+                .addInput(cram)
+                .addVCF(exac)
+                .addIntervals(exac)
+                .addOutput(out);
+        runCommandLine(args);
+    }
+
+    @Test
     public void test() {
         final File output = createTempFile("output", ".table");
 

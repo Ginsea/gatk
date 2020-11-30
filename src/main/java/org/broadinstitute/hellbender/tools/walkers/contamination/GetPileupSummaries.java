@@ -1,5 +1,8 @@
 package org.broadinstitute.hellbender.tools.walkers.contamination;
 
+import htsjdk.samtools.Cigar;
+import htsjdk.samtools.CigarElement;
+import htsjdk.samtools.CigarOperator;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFConstants;
 import htsjdk.variant.vcf.VCFHeader;
@@ -13,11 +16,16 @@ import org.broadinstitute.hellbender.engine.filters.ReadFilter;
 import org.broadinstitute.hellbender.engine.filters.ReadFilterLibrary;
 import org.broadinstitute.hellbender.engine.filters.WellformedReadFilter;
 import org.broadinstitute.hellbender.exceptions.UserException;
+import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBasedCallerUtils;
+import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
+import org.broadinstitute.hellbender.utils.pileup.PileupElement;
 import org.broadinstitute.hellbender.utils.pileup.ReadPileup;
-import org.broadinstitute.hellbender.utils.read.ReadUtils;
+import org.broadinstitute.hellbender.utils.read.*;
+import org.broadinstitute.hellbender.utils.smithwaterman.SmithWatermanAligner;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -137,6 +145,11 @@ public class GetPileupSummaries extends LocusWalker {
     @Argument(fullName = MIN_MAPPING_QUALITY_LONG_NAME, shortName = MIN_MAPPING_QUALITY_SHORT_NAME, doc = "Minimum read mapping quality", optional = true)
     private int minMappingQuality = DEFAULT_MINIMUM_MAPPING_QUALITY;
 
+    public static final String POST_FILTER_PILEUP_BAM = "filtered-pileup-bam";
+    @Argument(fullName = POST_FILTER_PILEUP_BAM, optional = true)
+    private GATKPath filteredPileupBam = null;
+    GATKReadWriter writer;
+
     private final List<PileupSummary> pileupSummaries = new ArrayList<>();
 
     private boolean sawVariantsWithoutAlleleFrequency = false;
@@ -185,6 +198,10 @@ public class GetPileupSummaries extends LocusWalker {
         if (!alleleFrequencyInHeader) {
             throw new UserException.BadInput("Population vcf does not have an allele frequency (AF) info field in its header.");
         }
+
+        if (filteredPileupBam != null){
+            writer = createSAMWriter(filteredPileupBam, true);
+        }
     }
 
     @Override
@@ -196,10 +213,51 @@ public class GetPileupSummaries extends LocusWalker {
         final VariantContext vc = vcs.get(0);
 
         if ( vc.isBiallelic() && vc.isSNP() && alleleFrequencyInRange(vc) ) {
+            final ReadPileup rawPileup = alignmentContext.getBasePileup();
             final ReadPileup pileup = alignmentContext.getBasePileup()
                     .makeFilteredPileup(pe -> pe.getRead().getMappingQuality() >= minMappingQuality);
+            final int numReadsRemoved = rawPileup.size() - pileup.size();
+
+            final byte altBase = vc.getAlternateAllele(0).getBases()[0];
+            final byte refBase = vc.getReference().getBases()[0];
+            for (PileupElement elem : pileup){
+                if (elem.getBase() == refBase){
+                    // Get a new pileup element, using the realigned read.
+                    // Here I should either directly align to the alt haplotype. Or I should align to the alt (best) haplotype, then to ref, see if that alignment is better.
+                    // Or---should I do pairHMM? Realign to the reference. Start small, baby.
+                    final int padding = 20;
+                    referenceContext.setWindow(padding, padding);
+                    final byte[] refBases = referenceContext.getBases(); // Must expand;
+                    final byte[] altBases = referenceContext.getBases();
+                    final int variantOffsetWrtRef = padding;
+                    if (refBases[variantOffsetWrtRef] != refBase){
+                        throw new UserException("refBase doesn't match: " + refBases[variantOffsetWrtRef] + ", " + refBase);
+                    }
+                    altBases[variantOffsetWrtRef] = altBase;
+                    final int haplotypeSize = refBases.length;
+                    final Cigar refCigar = new Cigar(Arrays.asList(new CigarElement(haplotypeSize, CigarOperator.M)));
+                    final Haplotype altHaplotype = new Haplotype(altBases, false, 0, refCigar);
+                    final Haplotype refHaplotype = new Haplotype(refBases, false, 0, refCigar);
+                    final int refStart = referenceContext.getWindow().getStart();
+                    final boolean isInformative = true;
+                    final SmithWatermanAligner aligner = SmithWatermanAligner.getAligner(SmithWatermanAligner.Implementation.JAVA);
+                    final GATKRead readRealignedToAlt = AlignmentUtils.createReadAlignedToRef(elem.getRead(), altHaplotype, refHaplotype, refStart, isInformative, aligner);
+                    final GATKRead readAlignedToRef = AlignmentUtils.createReadAlignedToRef(elem.getRead(), altHaplotype, refHaplotype, refStart, isInformative, aligner);
+                }
+            }
+
             pileupSummaries.add(new PileupSummary(vc, pileup));
+            if (pileup.size() > 0){
+                pileup.getReads().forEach(writer::addRead);
+            }
         }
+    }
+
+    private void filterPileupElementJBX(final PileupElement pe){
+        final GATKRead read = pe.getRead();
+        // AssemblyBasedCallerUtils.realignReadsToTheirBestHaplotype();
+        // AlignmentUtils.createReadAlignedToRef();
+
     }
 
     @Override
