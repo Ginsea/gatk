@@ -1,6 +1,5 @@
 package org.broadinstitute.hellbender.tools.walkers.sv;
 
-import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFConstants;
@@ -56,7 +55,8 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                     new File(getToolTestDataDir() + "NA19428.overlaps.vcf.gz"),
                     new File(getToolTestDataDir() + "NA19456.overlaps.vcf.gz"),
                     new File(getToolTestDataDir() + "NA20502.overlaps.vcf.gz"),
-                    new File(getToolTestDataDir() + "NA21120.overlaps.vcf.gz"))
+                    new File(getToolTestDataDir() + "NA21120.overlaps.vcf.gz"),
+                    new File(getToolTestDataDir() + "NA00000.overlaps.vcf"))
             }
         };
     }
@@ -68,7 +68,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
         final ArgumentsBuilder args = new ArgumentsBuilder()
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
-                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "threeSamples.interval_list")
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS_LONG_NAME, getToolTestDataDir() + "threeSamples.interval_list")
                 .addIntervals(new File(getToolTestDataDir() + "threeSamples.interval_list"))
                 .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "threeSamples.ped");
 
@@ -136,7 +136,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                 .addOutput(output2)
                 .addReference(GATKBaseTest.b37Reference)
                 .add(JointGermlineCNVSegmentation.MIN_QUALITY_LONG_NAME, 0)
-                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "threeSamples.interval_list")
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS_LONG_NAME, getToolTestDataDir() + "threeSamples.interval_list")
                 .addIntervals(new File(getToolTestDataDir() + "threeSamples.interval_list"))
                 .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "threeSamples.ped");
         inputVcfs.forEach(vcf -> args2.addVCF(vcf));
@@ -156,7 +156,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
                 .addVCF(getToolTestDataDir() + "NA20533.fragmented.segments.vcf.gz")
-                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr13.interval_list")
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS_LONG_NAME, getToolTestDataDir() + "intervals.chr13.interval_list")
                 .addInterval("13:52951204-115064572")
                 .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "NA20533.ped");  //this sample actually appears Turner (X0), but doesn't matter for chr13
 
@@ -172,7 +172,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                 .addOutput(output2)
                 .addReference(GATKBaseTest.b37Reference)
                 .addVCF(getToolTestDataDir() + "adjacentDifferentCN.vcf")
-                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr8snippet.interval_list")
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS_LONG_NAME, getToolTestDataDir() + "intervals.chr8snippet.interval_list")
                 .addInterval("8:190726-666104")
                 .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "NA20520.ped");
 
@@ -194,7 +194,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                 .addOutput(output)
                 .addReference(GATKBaseTest.b37Reference)
                 .add(StandardArgumentDefinitions.PEDIGREE_FILE_LONG_NAME, getToolTestDataDir() + "overlapping.ped")
-                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS, getToolTestDataDir() + "intervals.chr22.interval_list")
+                .add(JointGermlineCNVSegmentation.MODEL_CALL_INTERVALS_LONG_NAME, getToolTestDataDir() + "intervals.chr22.interval_list")
                 .addInterval("22:22,538,114-23,538,437");
 
         inputVcfs.forEach(vcf -> args.addVCF(vcf));
@@ -202,7 +202,7 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
         runCommandLine(args, JointGermlineCNVSegmentation.class.getSimpleName());
 
         final Pair<VCFHeader, List<VariantContext>> overlappingEvents = VariantContextTestUtils.readEntireVCFIntoMemory(output.getAbsolutePath());
-        Assert.assertEquals(overlappingEvents.getRight().size(), 6);
+        Assert.assertEquals(overlappingEvents.getRight().size(), 7);
         //do copy number checks on genotypes
         //at the start of the contig, all homRef genotypes should be CN2
         final VariantContext vc0 = overlappingEvents.getRight().get(0);
@@ -269,6 +269,11 @@ public class JointGermlineCNVSegmentationIntegrationTest extends CommandLineProg
                 }
             }
         }
+
+        //spot check some AFs and make sure integer division isn't borked
+        Assert.assertEquals(overlappingEvents.getRight().get(0).getAttributeAsDouble(VCFConstants.ALLELE_FREQUENCY_KEY, 0.0), 0.056);
+        Assert.assertEquals(overlappingEvents.getRight().get(1).getAttributeAsDouble(VCFConstants.ALLELE_FREQUENCY_KEY, 0.0), 0.139);
+        Assert.assertEquals(overlappingEvents.getRight().get(6).getAttributeAsDouble(VCFConstants.ALLELE_FREQUENCY_KEY, 0.0), 0.028);
     }
 
     private void validateCopyNumber(final VariantContext variant, final String sampleName, final int expectedCopyNumber) {

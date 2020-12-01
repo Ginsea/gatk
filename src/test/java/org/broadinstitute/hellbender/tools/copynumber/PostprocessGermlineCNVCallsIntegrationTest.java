@@ -50,7 +50,7 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
 
     private static final Predicate<VariantContext> HAS_EXPECTED_GENOTYPE_ATTRIBUTES = vc -> {
         Genotype g = vc.getGenotype(0);
-        return g.hasAnyAttribute(GermlineCNVSegmentVariantComposer.CN) &&
+        return g.hasAnyAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT) &&
             g.hasAnyAttribute(GermlineCNVSegmentVariantComposer.QS) &&
             g.hasAnyAttribute(GermlineCNVSegmentVariantComposer.QA) &&
             g.hasAnyAttribute(GermlineCNVSegmentVariantComposer.QSE) &&
@@ -317,7 +317,7 @@ public final class PostprocessGermlineCNVCallsIntegrationTest extends CommandLin
             if (segment.isVariant()) {
                 final List<VariantContext> matches = output2.getRight().stream().filter(vc -> vc.getStart() == segment.getStart()).collect(Collectors.toList());
                 if (matches.size() == 1) {
-                    Assert.assertEquals(segment.getGenotype(0).getExtendedAttribute(GermlineCNVSegmentVariantComposer.CN), matches.get(0).getGenotype(0).getExtendedAttribute(GermlineCNVSegmentVariantComposer.CN));
+                    Assert.assertEquals(segment.getGenotype(0).getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT), matches.get(0).getGenotype(0).getExtendedAttribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT));
                     Assert.assertEquals(segment.getGenotype(0).getExtendedAttribute(GermlineCNVSegmentVariantComposer.QSS), matches.get(0).getGenotype(0).getExtendedAttribute(GermlineCNVSegmentVariantComposer.QSS));
                     GATKBaseTest.assertEqualsIntSmart(Integer.parseInt(segment.getGenotype(0).getExtendedAttribute(GermlineCNVSegmentVariantComposer.QS).toString()),
                             Integer.parseInt(matches.get(0).getGenotype(0).getExtendedAttribute(GermlineCNVSegmentVariantComposer.QS).toString()), 2,  //I've seen some wiggle in a few variants

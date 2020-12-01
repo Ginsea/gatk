@@ -41,11 +41,6 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
     /* VCF FORMAT header keys */
 
     /**
-     * Segment copy-number call
-     */
-    public static final String CN = "CN";
-
-    /**
      * Number of points in the segment
      */
     public static final String NP = "NP";
@@ -69,6 +64,9 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
      * Quality metric (segment end)
      */
     public static final String QSE = "QSE";
+
+    public static final String SCHEMA_HEADER_KEY = "gcnvVcfSchemaVersion";
+    public static final String CURRENT_SCHEMA_VERSION = "2.0";
 
     protected final Logger logger = LogManager.getLogger(this.getClass());
 
@@ -148,6 +146,9 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
         /* add default tool header lines */
         vcfDefaultToolHeaderLines.forEach(result::addMetaDataLine);
 
+        // add tool output schema version
+        result.addMetaDataLine(new VCFHeaderLine(SCHEMA_HEADER_KEY, CURRENT_SCHEMA_VERSION));
+
         result.setSequenceDictionary(sequenceDictionary);
 
         /* header lines for annotations copied from cohort VCF */
@@ -161,7 +162,7 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
         /* header lines related to genotype formatting */
         result.addMetaDataLine(new VCFFormatHeaderLine(VCFConstants.GENOTYPE_KEY, 1,
                 VCFHeaderLineType.String, "Segment genotype"));
-        result.addMetaDataLine(new VCFFormatHeaderLine(CN, 1,
+        result.addMetaDataLine(new VCFFormatHeaderLine(GATKSVVCFConstants.COPY_NUMBER_FORMAT, 1,
                 VCFHeaderLineType.Integer, "Segment most-likely copy-number call"));
         result.addMetaDataLine(new VCFFormatHeaderLine(NP, 1,
                 VCFHeaderLineType.Integer, "Number of points (i.e. targets or bins) in the segment"));
@@ -213,8 +214,8 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
         final IntegerCopyNumberState refCopyNumber = allosomalContigSet.contains(contig)
                 ? segment.getBaselineIntegerCopyNumberState()
                 : refAutosomalCopyNumberState;
-        genotypeBuilder.alleles(GATKSVVariantContextUtils.makeGenotypeAlleles(copyNumberCall, refCopyNumber.getCopyNumber(), refAllele));
-        genotypeBuilder.attribute(CN, copyNumberCall);
+        genotypeBuilder.alleles(GATKSVVariantContextUtils.makeGenotypeAllelesFromCopyNumber(copyNumberCall, refCopyNumber.getCopyNumber(), refAllele));
+        genotypeBuilder.attribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT, copyNumberCall);
         genotypeBuilder.attribute(NP, segment.getNumPoints());
         genotypeBuilder.attribute(QS, FastMath.round(segment.getQualitySomeCalled()));
         genotypeBuilder.attribute(QA, FastMath.round(segment.getQualityAllCalled()));

@@ -15,18 +15,20 @@ import java.util.stream.Collectors;
 public class SVDepthOnlyCallDefragmenter extends LocatableClusterEngine<SVCallRecordWithEvidence> {
 
     private final double minSampleOverlap;
-    private static final double PADDING_FRACTION = 0.5;
+    private final double paddingFraction;
+    private static final double DEFAULT_PADDING_FRACTION = 0.5;
+    private static final double DEFAULT_MIN_SAMPLE_OVERLAP = 0.9;
 
     public SVDepthOnlyCallDefragmenter(final SAMSequenceDictionary dictionary) {
-        this(dictionary, 0.9, null);
+        this(dictionary, DEFAULT_MIN_SAMPLE_OVERLAP, DEFAULT_PADDING_FRACTION, null);
     }
 
     //for single-sample clustering case
-    public SVDepthOnlyCallDefragmenter(final SAMSequenceDictionary dictionary, double minSampleOverlap, List<GenomeLoc> coverageIntervals) {
+    public SVDepthOnlyCallDefragmenter(final SAMSequenceDictionary dictionary, double paddingFraction,
+                                       double minSampleOverlap, List<GenomeLoc> coverageIntervals) {
         super(dictionary, CLUSTERING_TYPE.SINGLE_LINKAGE, coverageIntervals);
         this.minSampleOverlap = minSampleOverlap;
-
-
+        this.paddingFraction = paddingFraction;
     }
 
     /**
@@ -129,7 +131,7 @@ public class SVDepthOnlyCallDefragmenter extends LocatableClusterEngine<SVCallRe
 
 
     /**
-     * Determine an overlap interval for clustering using {@value #PADDING_FRACTION} padding
+     * Determine an overlap interval for clustering using padding specified at object construction
      * Returned interval represents the interval in which the start position of a new event must fall in order to be added to the cluster (including {@param call})
      * @param call  new event to be clustered
      * @param currentClusterInterval    the cluster of interest, may be null
@@ -160,21 +162,21 @@ public class SVDepthOnlyCallDefragmenter extends LocatableClusterEngine<SVCallRe
                 throw new UserException.BadInput("Copy number call at " + call.getContig() + ":" + call.getStart() + "-"
                         + call.getEnd() + " does not align with supplied model calling intervals. Use the filtered intervals input from GermlineCNVCaller for this cohort/model.");
             }
-            final int paddedStartIndex = Math.max(callStartIndex - (int)Math.round(callBinLength * PADDING_FRACTION), 0);
+            final int paddedStartIndex = Math.max(callStartIndex - (int)Math.round(callBinLength * paddingFraction), 0);
             if (coverageIntervals.get(paddedStartIndex).getContig().equals(callStart.getContig())) {
                 paddedCallStart = coverageIntervals.get(paddedStartIndex).getStart();
             } else {
                 paddedCallStart = callStart.getStart();
             }
-            final int paddedEndIndex = Math.min(callEndIndex + (int)Math.round(callBinLength * PADDING_FRACTION), genomicToBinMap.size() - 1);
+            final int paddedEndIndex = Math.min(callEndIndex + (int)Math.round(callBinLength * paddingFraction), genomicToBinMap.size() - 1);
             if (coverageIntervals.get(paddedEndIndex).getContig().equals(callEnd.getContig())) {
                 paddedCallEnd = coverageIntervals.get(paddedEndIndex).getEnd();
             } else {
                 paddedCallEnd = callEnd.getEnd();
             }
         } else {
-            paddedCallStart = (int) (callInterval.getStart() - PADDING_FRACTION * callInterval.getLengthOnReference());
-            paddedCallEnd = (int) (callInterval.getEnd() + PADDING_FRACTION * callInterval.getLengthOnReference());
+            paddedCallStart = (int) (callInterval.getStart() - paddingFraction * callInterval.getLengthOnReference());
+            paddedCallEnd = (int) (callInterval.getEnd() + paddingFraction * callInterval.getLengthOnReference());
         }
         final int contigLength = dictionary.getSequence(call.getContig()).getSequenceLength();
         if (currentClusterInterval == null) {
@@ -211,7 +213,7 @@ public class SVDepthOnlyCallDefragmenter extends LocatableClusterEngine<SVCallRe
     }
 
     @VisibleForTesting
-    public static double getPaddingFraction() {
-        return PADDING_FRACTION;
+    public static double getDefaultPaddingFraction() {
+        return DEFAULT_PADDING_FRACTION;
     }
 }

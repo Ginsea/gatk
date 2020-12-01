@@ -7,12 +7,14 @@ import org.broadinstitute.barclay.argparser.Argument;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
 import org.broadinstitute.barclay.help.DocumentedFeature;
 import org.broadinstitute.hellbender.cmdline.programgroups.CopyNumberProgramGroup;
+import org.broadinstitute.hellbender.engine.GATKPath;
 import org.broadinstitute.hellbender.engine.GATKTool;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
 import org.broadinstitute.hellbender.tools.copynumber.arguments.CopyNumberArgumentValidationUtils;
 import org.broadinstitute.hellbender.tools.copynumber.formats.collections.*;
 import org.broadinstitute.hellbender.tools.copynumber.formats.metadata.LocatableMetadata;
+import org.broadinstitute.hellbender.tools.copynumber.formats.metadata.SampleLocatableMetadata;
 import org.broadinstitute.hellbender.tools.copynumber.formats.metadata.SimpleSampleLocatableMetadata;
 import org.broadinstitute.hellbender.tools.copynumber.formats.records.CopyNumberPosteriorDistribution;
 import org.broadinstitute.hellbender.tools.copynumber.formats.records.IntegerCopyNumberSegment;
@@ -62,6 +64,12 @@ import java.util.stream.IntStream;
  * <p>Finally, the tool concatenates posterior means for denoised copy ratios from all the call shards produced by
  * the {@link GermlineCNVCaller} into a single file.</p>
  *
+ * <p>This tool can also take a VCF specifying breakpoints to be used instead of HMM-derived segmentation using posterior
+ * probabilities from the intervals.  This functionality enables the calculation of new quality scores using breakpoints
+ * derived from another source, as with JointGermlineCNVSegmentation applied to multiple samples. When using this functionality,
+ * an <code>input-intervals-vcf</code> from the original PostprocessGermlineCNVCalls call without multi-sample
+ * breakpoints should also be provided.</p>
+ *
  * <h3>Python environment setup</h3>
  *
  * <p>The computation done by this tool, aside from input data parsing and validation, is performed outside of the Java
@@ -107,6 +115,24 @@ import java.util.stream.IntStream;
  *     --output-genotyped-intervals sample_0_genotyped_intervals.vcf
  *     --output-genotyped-segments sample_0_genotyped_segments.vcf
  *     --output-denoised-copy-ratios sample_0_denoised_copy_ratios.tsv
+ * </pre>
+ *
+ * <pre>
+ *   gatk PostprocessGermlineCNVCalls \
+ *     --calls-shard-path path/to/shard_1-calls
+ *     --calls-shard-path path/to/shard_2-calls
+ *     --model-shard-path path/to/shard_1-model
+ *     --model-shard-path path/to/shard_2-model
+ *     --sample-index 0
+ *     --autosomal-ref-copy-number 2
+ *     --allosomal-contig X
+ *     --allosomal-contig Y
+ *     --input-intervals-vcf sample_0_genotyped_intervals.vcf
+ *     --clustered-breakpoints cohort_breakpoints.vcf
+ *     --output-genotyped-intervals sample_0_genotyped_intervals.clustered.vcf
+ *     --output-genotyped-segments sample_0_genotyped_segments.clustered.vcf
+ *     --output-denoised-copy-ratios sample_0_denoised_copy_ratios.clustered.tsv
+ *     -R reference.fasta
  * </pre>
  *
  * @author Mehrtash Babadi &lt;mehrtash@broadinstitute.org&gt;
@@ -187,7 +213,7 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
     private File combinedIntervalsVCFFile = null;
 
     @Argument(
-            doc = "VCF with clustered breakpoints and copy number calls for all samples",
+            doc = "VCF with clustered breakpoints and copy number calls for all samples, can be generated with GATK JointGermlineCNVSegmentation tool",
             fullName = CLUSTERED_FILE_LONG_NAME,
             optional = true
     )
@@ -459,27 +485,26 @@ public final class PostprocessGermlineCNVCalls extends GATKTool {
 
         final List<IntegerCopyNumberSegment> records;
         //if we supply a breakpoints file, then allow overlapping segments
+        final AbstractRecordCollection<SampleLocatableMetadata, IntegerCopyNumberSegment> integerCopyNumberSegmentCollection;
+        final String sampleNameFromSegmentCollection;
         if (clusteredBreakpointsVCFFile == null) {
-            final IntegerCopyNumberSegmentCollection integerCopyNumberSegmentCollection
+            integerCopyNumberSegmentCollection
                     = new IntegerCopyNumberSegmentCollection(copyNumberSegmentsFile);
-            final String sampleNameFromSegmentCollection = integerCopyNumberSegmentCollection
+            sampleNameFromSegmentCollection= integerCopyNumberSegmentCollection
                     .getMetadata().getSampleName();
-            Utils.validate(sampleNameFromSegmentCollection.equals(sampleName),
-                    String.format("Sample name found in the header of copy-number segments file is " +
-                                    "different from the expected sample name (found: %s, expected: %s).",
-                            sampleNameFromSegmentCollection, sampleName));
-            records = integerCopyNumberSegmentCollection.getRecords();
+
         } else {
-            final OverlappingIntegerCopyNumberSegmentCollection integerCopyNumberSegmentCollection
+            integerCopyNumberSegmentCollection
                     = new OverlappingIntegerCopyNumberSegmentCollection(copyNumberSegmentsFile);
-            final String sampleNameFromSegmentCollection = integerCopyNumberSegmentCollection
+            sampleNameFromSegmentCollection = integerCopyNumberSegmentCollection
                     .getMetadata().getSampleName();
-            Utils.validate(sampleNameFromSegmentCollection.equals(sampleName),
-                    String.format("Sample name found in the header of copy-number segments file is " +
-                                    "different from the expected sample name (found: %s, expected: %s).",
-                            sampleNameFromSegmentCollection, sampleName));
-            records = integerCopyNumberSegmentCollection.getRecords();
         }
+        Utils.validate(sampleNameFromSegmentCollection.equals(sampleName),
+                String.format("Sample name found in the header of copy-number segments file is " +
+                                "different from the expected sample name (found: %s, expected: %s).",
+                        sampleNameFromSegmentCollection, sampleName));
+        records = integerCopyNumberSegmentCollection.getRecords();
+
 
         /* write variants */
         logger.info(String.format("Writing segments VCF file to %s...", outputSegmentsVCFFile.getAbsolutePath()));

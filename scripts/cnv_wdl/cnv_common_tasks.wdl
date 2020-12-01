@@ -527,7 +527,7 @@ task PostprocessGermlineCNVCalls {
             --output-genotyped-intervals ~{genotyped_intervals_vcf_filename} \
             --output-genotyped-segments ~{genotyped_segments_vcf_filename} \
             --output-denoised-copy-ratios ~{denoised_copy_ratios_filename} \
-            ~{"--combined-intervals-vcf " + intervals_vcf} \
+            ~{"--input-intervals-vcf " + intervals_vcf} \
             ~{"--clustered-breakpoints " + clustered_vcf} \
             ~{"-R " + reference_fasta}
 
