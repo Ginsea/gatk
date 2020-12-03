@@ -1,6 +1,7 @@
 package org.broadinstitute.hellbender.tools.walkers.sv;
 
 import ml.dmlc.xgboost4j.java.*;
+import org.apache.commons.math3.util.FastMath;
 import org.broadinstitute.barclay.argparser.Argument;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
 import org.broadinstitute.barclay.help.DocumentedFeature;
@@ -11,7 +12,7 @@ import java.io.*;
 import java.util.*;
 import java.util.stream.IntStream;
 
-import static org.apache.commons.math3.util.FastMath.ceil;
+import static org.apache.commons.math3.util.FastMath.*;
 
 @CommandLineProgramProperties(
         summary = "Extract matrix of properties for each variant. Also extract, num_variants x num_trios x 3 tensors of" +
@@ -24,54 +25,35 @@ import static org.apache.commons.math3.util.FastMath.ceil;
 )
 @DocumentedFeature
 public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
-    @Argument(fullName="max-training-rounds", shortName="t", doc="Maximum number of rounds of training", optional=true, minValue=1)
+    @Argument(fullName="max-training-rounds", shortName="tr", doc="Maximum number of rounds of training", optional=true, minValue=1)
     public int maxTrainingRounds = 100;
     @Argument(fullName="early-stopping-rounds", shortName="e", doc="Stop training if no improvement is made in validation set for this many rounds. Set <= 0 to disable.", optional=true)
     public int earlyStoppingRounds = 10;
     @Argument(fullName="initial-min-gq-quantile", shortName="q", doc="Initial guess for min GQ, as a quantile of gq in variants of trios.", optional=true)
     public double initialMinGqQuantile = 0.05;
-    @Argument(fullName="learning-rate", shortName="r", doc="Learning rate for xgboost", optional=true)
+    @Argument(fullName="learning-rate", shortName="lr", doc="Learning rate for xgboost", optional=true)
     public double eta = 1.0;
     @Argument(fullName="max-depth", shortName="d", doc="Max depth of boosted decision tree", optional=true, minValue=1)
     public int maxDepth = 6;
     @Argument(fullName="gamma", doc="Regularization factor for xgboost", optional=true)
     public double gamma = 1.0e-9;
     @Argument(fullName="subsample", doc="Proportion of data selected for each tree", optional=true)
-    public double subsample = 0.7;
-    @Argument(fullName="colsample_by_tree", doc="Proportion of columns selected for each tree", optional=true)
-    public double colsampleByTree = 0.7;
-    @Argument(fullName="colsample_by_level", doc="Proportion of columns selected for each level of each tree", optional=true)
+    public double subsample = 0.9;
+    @Argument(fullName="colsample-by-tree", doc="Proportion of columns selected for each tree", optional=true)
+    public double colsampleByTree = 0.9;
+    @Argument(fullName="colsample-by-level", doc="Proportion of columns selected for each level of each tree", optional=true)
     public double colsampleByLevel = 1.0;
+    @Argument(fullName="min-child-weight", doc="Proportion of columns selected for each level of each tree", optional=true, minValue=0.0)
+    public double minChildWeight = 1.0;
+    @Argument(fullName="prediction-scale-factor", doc="Scale factor for raw predictions from xgboost", optional=true)
+    public double predictionScaleFactor = 1000.0;
+    @Argument(fullName="train-with-targets", doc="Use difference from optimal min GQ as loss, rather than minimizing inheritance/truth loss directly", optional=true)
+    public boolean trainWithTargets = true;
 
     private Booster booster = null;
-
-    static final int DOWN_IDX = 0;
-    static final int MIDDLE_IDX = 1;
-    static final int UP_IDX = 2;
-    private final int[] minGqForDerivs = new int[3];
-    private final int[] numPassedForDerivs = new int[3];
-    private final int[] numMendelianForDerivs = new int[3];
-    private float[] d1NumPassed = null;
-    private float[] d2NumPassed = null;
-    private float[] d1NumMendelian = null;
-    private float[] d2NumMendelian = null;
-
     private static final String TRAIN_MAT_KEY = "train";
     private static final String VALIDATION_MAT_KEY = "validation";
 
-
-    private int getGenotypeQualitiesQuantile(final double quantile) {
-        if(quantile < 0 || quantile > 1) {
-            throw new GATKException("quantile should be in the closed range [0.0, 1.0]");
-        }
-        final int numGenotypeQualities = getNumVariants() * getNumTrios() * 3;
-        final int quantileInd = (int)Math.round(quantile * numGenotypeQualities);
-        return genotypeQualitiesTensor.stream().flatMapToInt(
-                mat -> Arrays.stream(mat).flatMapToInt(Arrays::stream)
-        ).sorted().skip(quantileInd).findFirst().orElseThrow(
-                () -> new GATKException("Unable to obtain " + quantile + " of allele counts. This is a bug.")
-        );
-    }
 
     protected float[] getRowMajorVariantProperties(int[] rowIndices) {
         if(rowIndices == null) {
@@ -89,35 +71,38 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
         return rowMajorVariantProperties;
     }
 
-    private DMatrix getDMatrix(final int[] rowIndices) {
-        final float[] arr = getRowMajorVariantProperties(rowIndices);
-        if(arr.length != rowIndices.length * getNumProperties()) {
-            throw new GATKException("rowMajorVariantProperties has length " + arr.length + ", should be " + rowIndices.length * getNumProperties());
+    private DMatrix getDMatrix(final int[] variantIndices) {
+        final float[] propertiesArr = getRowMajorVariantProperties(variantIndices);
+        final int[] perVariantOptimalMinGq = getPerVariantOptimalMinGq(variantIndices);
+        if(propertiesArr.length != variantIndices.length * getNumProperties()) {
+            throw new GATKException("rowMajorVariantProperties has length " + propertiesArr.length + ", should be " + variantIndices.length * getNumProperties());
         }
-        return getDMatrix(arr, rowIndices.length, getNumProperties());
+        return getDMatrix(propertiesArr, perVariantOptimalMinGq, variantIndices.length, getNumProperties());
     }
 
     private DMatrix getDMatrix(final double[] variantProperties) {
         final float[] arr = new float[variantProperties.length];
+        final int[] perVariantOptimalMinGq = new int[1];
         for(int i = 0; i < variantProperties.length; ++i) {
             arr[i] = (float)variantProperties[i];
         }
-        return getDMatrix(arr, 1, variantProperties.length);
+        return getDMatrix(arr, perVariantOptimalMinGq, 1, variantProperties.length);
     }
 
-    private DMatrix getDMatrix(final float[] arr, final int numRows, final int numColumns) {
+    private DMatrix getDMatrix(final float[] propertiesArr, final int[] perVariantOptimalMinGq,
+                               final int numRows, final int numColumns) {
         try {
-            for(final float val : arr) {
+            for(final float val : propertiesArr) {
                 if(!Float.isFinite(val)) {
                     throw new GATKException("rowMajorVariantProperties contains a non-finite value (" + val + ")");
                 }
             }
             final DMatrix dMatrix = new DMatrix(
-                    arr, numRows, numColumns, Float.NaN
+                    propertiesArr, numRows, numColumns, Float.NaN
             );
-            // Add dummy labels so that XGBoost thinks there are two classes
             // Set baseline (initial prediction for min GQ)
-            final int baselineGq = getGenotypeQualitiesQuantile(initialMinGqQuantile);
+            //final int baselineGq = getGenotypeQualitiesQuantile(initialMinGqQuantile);
+            final int baselineGq = 0;
             final float baselinePredict = (float)baselineGq / (float)predictionScaleFactor;
             final float[] baseline = new float[numRows];
             final float[] weights = new float[numRows];
@@ -147,6 +132,7 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
                 put("subsample", subsample);
                 put("colsample_bytree", colsampleByTree);
                 put("colsample_bylevel", colsampleByLevel);
+                put("min_child_weight", minChildWeight);
                 put("validate_parameters", true);
                 put("objective", "reg:squarederror");
                 put("eval_metric", "rmse");
@@ -154,37 +140,111 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
         };
     }
 
-    private float[] predictsToMinGq(final float[][] predicts) {
-        final float[] minGq = new float[predicts.length];
+    private float[] predictsToFloatMinGq(final float[][] predicts, float[] minGq) {
+        if(minGq == null) {
+            minGq = new float[predicts.length];
+        }
         for(int idx = 0; idx < predicts.length; ++idx) {
             minGq[idx] = (float)predictionScaleFactor * predicts[idx][0];
         }
         return minGq;
     }
 
-    private int[] predictsToIntMinGq(final float[][] predicts) {
-        final int[] minGq = new int[predicts.length];
+    private int[] predictsToIntMinGq(final float[][] predicts, int[] minGq) {
+        if(minGq == null) {
+            minGq = new int[predicts.length];
+        }
         for(int idx = 0; idx < predicts.length; ++idx) {
-            minGq[idx] = (int)Math.ceil(predictionScaleFactor * predicts[idx][0]);
+            minGq[idx] = (int)ceil(predictionScaleFactor * predicts[idx][0]);
         }
         return minGq;
     }
 
     private class DataSubset {
         final DMatrix dMatrix;
-        final int[] indices;
+        final int[] variantIndices;
         final List<Float> scores;
+        final int[] intMinGq;
+        final float[] floatMinGq;
+        final float[] d1Loss;
+        final float[] d2Loss;
+        final double bestPossibleLoss;
 
         private int bestScoreInd;
         private float bestScore;
 
-        DataSubset(final DMatrix dMatrix, final int[] indices) {
+        DataSubset(final DMatrix dMatrix, final int[] indices, final boolean needDerivatives) {
             this.dMatrix = dMatrix;
-            this.indices = indices;
-            this.scores = new ArrayList<>();
-            this.bestScore = Float.POSITIVE_INFINITY;
-            this.bestScoreInd = 0;
+            this.variantIndices = indices;
+            scores = new ArrayList<>();
+            bestScore = Float.POSITIVE_INFINITY;
+            bestScoreInd = 0;
+            intMinGq = new int[indices.length];
+            floatMinGq = needDerivatives ? new float[indices.length] : null;
+            d1Loss = needDerivatives ? new float[indices.length] : null;
+            d2Loss = needDerivatives ? new float[indices.length] : null;
+            bestPossibleLoss = getLoss(getPerVariantOptimalMinGq(indices), indices).toDouble();
+            System.out.println("Best possible loss = " + bestPossibleLoss);
         }
+
+        public int size() { return variantIndices.length; }
+
+        public void calcScore(final float[][] rawPredictions) {
+            predictsToIntMinGq(rawPredictions, intMinGq);
+            final Loss loss = getLoss(intMinGq, variantIndices);
+            appendScore(loss.toFloat());
+            if(d1Loss != null) {
+                // calculate derivatives
+                predictsToFloatMinGq(rawPredictions, floatMinGq);
+                calculateDerivatives(loss);
+            }
+        }
+
+        void calculateDerivativesTargets(final Loss loss) {
+            final int[] optimalMinGq = getPerVariantOptimalMinGq(variantIndices);
+            final double squareFactor = predictionScaleFactor * predictionScaleFactor;
+            final double deltaLoss = loss.toDouble() - bestPossibleLoss;
+            if(deltaLoss <= 0) {
+                throw new GATKException("Bad deltaLoss: " + deltaLoss);
+            }
+            System.out.println("deltaLoss=" + deltaLoss);
+            for (int i = 0; i < variantIndices.length; ++i) {
+                final double err = floatMinGq[i] - optimalMinGq[i];
+                if(err == 0) {
+                    d1Loss[i] = 0F;
+                    d2Loss[i] = (float) (squareFactor * 2.0 / FastMath.max(deltaLoss, 1.0e-3));
+                } else {
+                    final double safeErr = FastMath.signum(err) * FastMath.max(FastMath.abs(err), deltaLoss);
+                    d1Loss[i] = (float) (predictionScaleFactor * 2.0 * deltaLoss / safeErr);
+                    d2Loss[i] = (float) (squareFactor * 2.0 * deltaLoss / (safeErr * safeErr));
+                }
+            }
+        }
+
+        void calculateDerivatives(final Loss loss) {
+            final BinnedFilterSummaries backgroundFilterSummary
+                    = getBackgroundFilterSummary(null, variantIndices, intMinGq);
+            final double squareFactor = predictionScaleFactor * predictionScaleFactor;
+            for (int i = 0; i < variantIndices.length; ++i) {
+                final int variantIndex = variantIndices[i];
+                final BinnedFilterSummaries filterSummary = getBinnedFilterSummary(intMinGq[i], variantIndex);
+                final FilterQuality localOptimum = getOptimalVariantMinGq(
+                    variantIndex, backgroundFilterSummary.subtract(filterSummary)
+                );
+                final double err = floatMinGq[i] - localOptimum.getMinGq();
+                final double deltaLoss = loss.toDouble() - bestPossibleLoss;
+                if(err == 0 || deltaLoss == 0) {
+                    d1Loss[i] = 0F;
+                    d2Loss[i] = (float) (squareFactor * 2.0 / FastMath.max(deltaLoss, 1.0e-3));
+                } else {
+                    final double safeErr = FastMath.signum(err) * FastMath.max(FastMath.abs(err), deltaLoss);
+                    d1Loss[i] = (float) (predictionScaleFactor * 2.0 * deltaLoss / safeErr);
+                    d2Loss[i] = (float) (squareFactor * 2.0 * deltaLoss / (safeErr * safeErr));
+                }
+            }
+        }
+
+        public float getLastScore() { return scores.get(scores.size() - 1); }
 
         public void appendScore(final float score) {
             scores.add(score);
@@ -258,181 +318,12 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
         }
     }
 
-    private void bracketFiniteDifferences(final TrioFilterSummary predictSummary,
-                                          final int[][] alleleCounts, final int[][] genotypeQualities) {
-        final int[] candidateMinGqs = getCandidateMinGqs(alleleCounts, genotypeQualities, predictSummary.minGq).toArray();
-        final int lastIdx = candidateMinGqs.length - 1;
-        final TrioFilterSummary downSummary, middleSummary, upSummary;
-        if(candidateMinGqs.length == 0) {
-            downSummary = predictSummary.shiftMinGq(-1); // set downSummary minGq to 1 less than predictMinGq
-            middleSummary = predictSummary;
-            upSummary = predictSummary.shiftMinGq(+1);
-        } else if(candidateMinGqs[0] > predictSummary.minGq) {
-            // no candidates available less than predictMinGq
-            if(candidateMinGqs.length == 1) {
-                downSummary = predictSummary.shiftMinGq(-1); // set downSummary minGq to 1 less than predictMinGq
-                middleSummary = predictSummary;
-                upSummary = getTrioFilterSummary(candidateMinGqs[0], alleleCounts, genotypeQualities);
-            } else {
-                downSummary = predictSummary;
-                middleSummary = getTrioFilterSummary(candidateMinGqs[0], alleleCounts, genotypeQualities);
-                upSummary = getTrioFilterSummary(candidateMinGqs[1], alleleCounts, genotypeQualities);
-            }
-        } else if(candidateMinGqs[lastIdx] < predictSummary.minGq) {
-            // no candidates available greater than predictMinGq
-            if(candidateMinGqs.length == 1) {
-                downSummary = getTrioFilterSummary(candidateMinGqs[lastIdx], alleleCounts, genotypeQualities);
-                middleSummary = predictSummary;
-                upSummary = predictSummary.shiftMinGq(+1);
-            } else {
-                downSummary = getTrioFilterSummary(candidateMinGqs[lastIdx - 1], alleleCounts, genotypeQualities);
-                middleSummary = getTrioFilterSummary(candidateMinGqs[lastIdx], alleleCounts, genotypeQualities);
-                upSummary = predictSummary;
-            }
-        } else {
-            // There is a candidate > predictMinGq and a candidate < predictMinGq, use those
-            final int upIdx = IntStream.range(0, candidateMinGqs.length)
-                    .filter(i -> candidateMinGqs[i] > predictSummary.minGq).findFirst().orElseThrow(
-                            () -> {throw new GATKException("Error bracketing derivatives, this is a bug.");}
-                    );
-            if(upIdx < 1) {
-                throw new GATKException("Error bracketing derivatives, this is a bug");
-            }
-            downSummary = getTrioFilterSummary(candidateMinGqs[upIdx - 1], alleleCounts, genotypeQualities);
-            middleSummary = predictSummary;
-            upSummary = getTrioFilterSummary(candidateMinGqs[upIdx], alleleCounts, genotypeQualities);
-        }
-        minGqForDerivs[DOWN_IDX] = downSummary.minGq;
-        minGqForDerivs[MIDDLE_IDX] = middleSummary.minGq;
-        minGqForDerivs[UP_IDX] = upSummary.minGq;
-
-        numPassedForDerivs[DOWN_IDX] = (int)downSummary.numPassed;
-        numPassedForDerivs[MIDDLE_IDX] = (int)middleSummary.numPassed;
-        numPassedForDerivs[UP_IDX] = (int)upSummary.numPassed;
-
-        numMendelianForDerivs[DOWN_IDX] = (int)downSummary.numMendelian;
-        numMendelianForDerivs[MIDDLE_IDX] = (int)middleSummary.numMendelian;
-        numMendelianForDerivs[UP_IDX] = (int)upSummary.numMendelian;
-    }
-
-    private float sqr(final float x) { return x * x; }
-
-
-    private void setDerivsFromDifferences(final float xTrue, final int[] x, final int[] y,
-                                          final int derivativeIdx, final float[] d1, final float[] d2) {
-        // model as quadratic: y = a * x^2 + b * x + c
-        final float denom = (float)((x[2] - x[1]) * (x[2] - x[0]) * (x[1] - x[0]));
-        final float a = ((x[2] - x[1]) * (y[1] - y[0]) - (x[1] - x[0]) * (y[2] - y[1])) / denom;
-        final float b = ((sqr(x[2]) - sqr(x[1])) * (y[1] - y[0]) - (sqr(x[1]) - sqr(x[0])) * (y[2] - y[1])) / denom;
-        final float d2_x = 2f * a;
-        d1[derivativeIdx] = (float)(predictionScaleFactor) * (d2_x * xTrue + b);
-        if(d2 != null) {
-            d2[derivativeIdx] = (float)(predictionScaleFactor * predictionScaleFactor) * d2_x;
-        }
-    }
-
-    protected float getLoss(final float[] minGq, final int[] variantIndices) {
-        if(minGq.length != variantIndices.length) {
-            throw new GATKException(
-                    "Length of minGq (" + minGq.length + ") does not match length of variantIndices (" + variantIndices.length + ")"
-            );
-        }
-        long numPassed = 0;
-        long numMendelian = 0;
-        long numDiscoverable = 0;
-        for(int idx = 0; idx < minGq.length; ++idx) {
-            final int variantIndex = variantIndices[idx];
-            final TrioFilterSummary variantFilterSummary = getTrioFilterSummary((int)ceil(minGq[idx]), variantIndex);
-            // update number of non-REF alleles, number of non-REF that pass filter, and number that are in a trio
-            // compatible with Mendelian inheritance
-            numPassed += variantFilterSummary.numPassed;
-            numMendelian += variantFilterSummary.numMendelian;
-            numDiscoverable += maxDiscoverableMendelianAc[variantIndex];
-        }
-        // report loss = 1.0 - f1 (algorithms expect to go downhill)
-        return 1F - (float)getF1(numDiscoverable, numMendelian, numPassed);
-    }
-
-    protected List<float[]> getLossDerivs(final float[] minGq, final int[] variantIndices, final int derivativeOrder) {
-        if(minGq.length != variantIndices.length) {
-            throw new GATKException(
-                    "Length of minGq (" + minGq.length + ") does not match length of variantIndices (" + variantIndices.length + ")"
-            );
-        }
-        if(derivativeOrder <= 0 || derivativeOrder >= 3) {
-            throw new GATKException("derivativeOrder must be 1 or 2. Supplied value is " + derivativeOrder);
-        }
-        final float[] d1Loss = new float[minGq.length];
-        final float[] d2Loss = derivativeOrder > 1 ? new float[minGq.length] : null;
-        if(d1NumPassed == null) {
-            d1NumPassed = new float[getNumVariants()];
-            d1NumMendelian = new float[getNumVariants()];
-        }
-        if(derivativeOrder > 1) {
-            if(d2NumPassed == null) {
-                d2NumPassed = new float[getNumVariants()];
-                d2NumMendelian = new float[getNumVariants()];
-            }
-        }
-
-        long numPassed = 0;
-        long numMendelian = 0;
-        for(int idx = 0; idx < minGq.length; ++idx) {
-            final boolean debug = (printProgress > 1) && (idx < 5);
-
-            final float variantMinGq = minGq[idx];
-            final int variantIdx = variantIndices[idx];
-
-            final int[][] variantAlleleCounts = alleleCountsTensor.get(variantIdx);
-            final int[][] variantGenotypeQualities = genotypeQualitiesTensor.get(variantIdx);
-
-            final int predictMinGq = (int)ceil(variantMinGq);
-            // update number of non-REF alleles, number of non-REF that pass filter, and number that are in a trio
-            // compatible with Mendelian inheritance
-            TrioFilterSummary predictSummary = getTrioFilterSummary(predictMinGq, variantAlleleCounts, variantGenotypeQualities);
-            numPassed += predictSummary.numPassed;
-            numMendelian += predictSummary.numMendelian;
-            bracketFiniteDifferences(predictSummary, variantAlleleCounts, variantGenotypeQualities);
-            setDerivsFromDifferences(variantMinGq, minGqForDerivs, numPassedForDerivs, idx,
-                    d1NumPassed, derivativeOrder > 1 ? d2NumPassed : null);
-            setDerivsFromDifferences(variantMinGq, minGqForDerivs, numMendelianForDerivs, idx,
-                    d1NumMendelian, derivativeOrder > 1 ? d2NumMendelian : null);
-
-            if(debug) {
-                System.out.println("minGq: " + Arrays.toString(minGqForDerivs));
-                System.out.println("numPassed: " + Arrays.toString(numPassedForDerivs));
-                System.out.println("d1,d2NumPassed: " + d1NumPassed[idx] + ", " + d2NumPassed[idx]);
-                System.out.println("numMendelian: " + Arrays.toString(numMendelianForDerivs));
-                System.out.println("d1,d2NumMendelian: " + d1NumMendelian[idx] + ", " + d2NumMendelian[idx]);
-            }
-        }
-
-        // calculate f1 score:
-        //     f1 = 2.0 / (1.0 / recall + 1.0 / precision)
-        //     recall = numMendelian / numNonRef
-        //     precision = numMendelian / numPassed
-        //     -> f1 = 2.0 * numMendelian / (numNonRef + numPassed)
-        final float denom = (float)(numDiscoverableMendelianAc + numPassed);
-        final float f1 = 2f * numMendelian / denom;
-        // loss is 1.0 - f1  (algorithms expect to go downhill)
-        final float loss = 1f - f1;
-        for(int idx = 0; idx < minGq.length; ++idx) {
-            d1Loss[idx] = (f1 * d1NumPassed[idx] - 2f * d1NumMendelian[idx]) / denom;
-            if(derivativeOrder > 1) {
-                d2Loss[idx] = (f1 * d2NumPassed[idx] - 2f * d2NumMendelian[idx] - 2f * d1NumPassed[idx] * d1Loss[idx]) / denom;
-            }
-        }
-        final float[] lossArr = new float[] {loss};
-        return derivativeOrder > 1 ? Arrays.asList(lossArr, d1Loss, d2Loss) : Arrays.asList(lossArr, d1Loss);
-    }
-
     private boolean trainOneRound(final Booster booster, final Map<String, DataSubset> dataSubsets) {
         // evaluate booster on all data sets, calculate derivatives on training set
         final DataSubset validationData = dataSubsets.get(VALIDATION_MAT_KEY);
         if(printProgress > 0) {
             System.out.println("Evaluating round " + (validationData.getRound() + 1));
         }
-        List<float[]> derivs = null;
         for(final Map.Entry<String, DataSubset> dataSubsetEntry : dataSubsets.entrySet()) {
             final String key = dataSubsetEntry.getKey();
             final DataSubset dataSubset = dataSubsetEntry.getValue();
@@ -442,28 +333,23 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
             } catch(XGBoostError xgBoostError) {
                 throw new GATKException("Error predicting " + key + " matrix, round " + dataSubset.getRound(), xgBoostError);
             }
-            final float[] minGq = predictsToMinGq(predicts);
-            final float score;
+            dataSubset.calcScore(predicts);
             if(key.equals(TRAIN_MAT_KEY)) {
-                derivs = getLossDerivs(minGq, dataSubset.indices, 2);
-                score = derivs.get(0)[0];
                 if(printProgress > 1) {
+                    final int[] perVariantOptimalMinGq = getPerVariantOptimalMinGq(dataSubset.variantIndices);
                     System.out.println("predicts.size = [" + predicts.length + "," + predicts[0].length + "]");
-                    System.out.println("minGq\td1\td2");
+                    System.out.println("minGq\toptimal\td1\td2");
+                    IntStream.range(0, dataSubset.size())
+                        .mapToObj()
                     for(int idx = 0; idx < 10; ++idx) {
-                        System.out.println(minGq[idx] + "\t" + derivs.get(1)[idx] + "\t" + derivs.get(2)[idx]);
+                        System.out.println(dataSubset.intMinGq[idx] + "\t" + perVariantOptimalMinGq[idx]
+                                           + "\t" + dataSubset.d1Loss[idx] + "\t" + dataSubset.d2Loss[idx]);
                     }
                 }
-            } else {
-                score = getLoss(minGq, dataSubset.indices);
             }
-            dataSubset.appendScore(score);
             if(printProgress > 0) {
-                System.out.println("\t" + key + ": " + score);
+                System.out.println("\t" + key + ": " + dataSubset.getLastScore());
             }
-        }
-        if(derivs == null) {
-            throw new GATKException("derivs was not assigned a value. This is a bug.");
         }
         // check if booster needs to be saved, or if early stopping is necessary
         if(validationData.isBestScore()) {
@@ -477,30 +363,23 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
             System.out.println("Boosting round " + validationData.getRound());
         }
         try {
-            booster.boost(dataSubsets.get(TRAIN_MAT_KEY).dMatrix, derivs.get(1), derivs.get(2));
+            final DataSubset trainData = dataSubsets.get(TRAIN_MAT_KEY);
+            booster.boost(trainData.dMatrix, trainData.d1Loss, trainData.d2Loss);
         } catch(XGBoostError xgBoostError) {
             throw new GATKException("Error boosting round " + dataSubsets.get(TRAIN_MAT_KEY).getRound(), xgBoostError);
         }
         return true;
     }
 
-    private void initializeHelperArrays() {
-        d1NumPassed = new float[getNumVariants()];
-        d1NumMendelian = new float[getNumVariants()];
-        d2NumPassed = new float[getNumVariants()];
-        d2NumMendelian = new float[getNumVariants()];
-    }
-
     @Override
     protected void trainFilter() {
-        initializeHelperArrays();
-
         final Map<String, DataSubset> dataSubsets = new HashMap<String, DataSubset>() {
             private static final long serialVersionUID = 0L;
-
             {
-                put(TRAIN_MAT_KEY, new DataSubset(getDMatrix(getTrainingIndices()), getTrainingIndices()));
-                put(VALIDATION_MAT_KEY, new DataSubset(getDMatrix(getValidationIndices()), getValidationIndices()));
+                put(TRAIN_MAT_KEY,
+                    new DataSubset(getDMatrix(getTrainingIndices()), getTrainingIndices(), true));
+                put(VALIDATION_MAT_KEY,
+                    new DataSubset(getDMatrix(getValidationIndices()), getValidationIndices(), false));
             }
         };
         booster = initializeBooster(dataSubsets);
@@ -515,8 +394,7 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
         } catch(XGBoostError xgBoostError) {
             throw new GATKException("Error predicting final training minGq", xgBoostError);
         }
-        final int[] minGq = predictsToIntMinGq(predicts);
-        displayGqHistogram("Final training prediction histogram", Arrays.stream(minGq), true);
-
+        final int[] minGq = predictsToIntMinGq(predicts, null);
+        displayHistogram("Final training prediction histogram", Arrays.stream(minGq), true);
     }
 }
