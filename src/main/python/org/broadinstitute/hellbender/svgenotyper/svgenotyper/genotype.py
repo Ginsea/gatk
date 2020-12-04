@@ -75,13 +75,17 @@ def get_output(vids_list: list, stats: dict, params: dict):
             phi_pe = stats['phi_pe']['mean'][i]
         else:
             phi_pe = 0
+        if 'm_pe' in stats:
+            p_m_pe = stats['m_pe']['mean'][i]
+        else:
+            p_m_pe = 0
         #if 'eta_r' in stats:
         #    eta_r = stats['eta_r']['mean'][i] * params['mu_eta_r']
         #else:
         #    eta_r = 0
         output_dict[vid] = {
             'freq_z': stats['z']['mean'][i, :],
-            'p_m_pe': stats['m_pe']['mean'][i],
+            'p_m_pe': p_m_pe,
             'p_m_sr1': stats['m_sr1']['mean'][i],
             'p_m_sr2': stats['m_sr2']['mean'][i],
             #'p_m_rd': stats['m_rd']['mean'][i],

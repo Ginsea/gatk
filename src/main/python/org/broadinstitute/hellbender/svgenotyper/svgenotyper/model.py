@@ -273,7 +273,7 @@ class SVGenotyperPyroModel(object):
                 trace = poutine.trace(inferred_model).get_trace(data_pe=data.pe_t, data_sr1=data.sr1_t,
                                                                 data_sr2=data.sr2_t, depth_t=data.depth_t,
                                                                 svlen_t=data.svlen_t, rd_gt_prob_t=data.rd_gt_prob_t)
-                binary_sites_sample = {site: {"mean": trace.nodes[site]["value"].detach().cpu().numpy().astype(dtype='float').squeeze()} for site in binary_sites}
+                binary_sites_sample = {site: {"mean": trace.nodes[site]["value"].detach().cpu().numpy().astype(dtype='float').squeeze()} for site in binary_sites if site in trace.nodes}
                 states_sample = trace.nodes["z"]["value"].detach().cpu().numpy().astype(dtype='float').squeeze()
                 states_sample_one_hot = np.zeros([states_sample.shape[0], states_sample.shape[1], n_states], dtype='float')
                 for j in range(n_states):
