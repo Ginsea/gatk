@@ -69,96 +69,82 @@ public class SVTestUtils {
 
     final static Genotype sample2 = GenotypeBuilder.create("sample2", Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_STRING_DUP +">", false)));
 
-    final static SVCallRecordWithEvidence rightEdgeCall = new SVCallRecordWithEvidence("chr1", chr1Length - 99, true,
+    final static SVCallRecord rightEdgeCall = new SVCallRecord("", "chr1", chr1Length - 99, true,
             "chr1", chr1Length, true,
             StructuralVariantType.CNV, 100,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence leftEdgeCall = new SVCallRecordWithEvidence("chr1", 1, true,
+    final static SVCallRecord leftEdgeCall = new SVCallRecord("", "chr1", 1, true,
             "chr1", length/2, true,
             StructuralVariantType.CNV, length/2,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence nonDepthOnly = new SVCallRecordWithEvidence("chr1", start, true,
+    final static SVCallRecord nonDepthOnly = new SVCallRecord("", "chr1", start, true,
             "chr1", start + length -1, true,
             StructuralVariantType.CNV, length,
             Arrays.asList(GATKSVVCFConstants.DEPTH_ALGORITHM, "PE"),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence call1 = new SVCallRecordWithEvidence("chr1", start, true,
+    final static SVCallRecord call1 = new SVCallRecord("", "chr1", start, true,
             "chr1", start + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence call2 = new SVCallRecordWithEvidence("chr1", start2, true,
+    final static SVCallRecord call2 = new SVCallRecord("", "chr1", start2, true,
             "chr1", start2 + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence call3 = new SVCallRecordWithEvidence("chr1", start2+length, true,
+    final static SVCallRecord call3 = new SVCallRecord("", "chr1", start2+length, true,
             "chr1", start2 + length + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence call4_chr10 = new SVCallRecordWithEvidence("chr10", start, true,
+    final static SVCallRecord call4_chr10 = new SVCallRecord("", "chr10", start, true,
             "chr10", start + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 
-    final static SVCallRecordWithEvidence call1_CN1 = new SVCallRecordWithEvidence("chr1", start, true,
+    final static SVCallRecord call1_CN1 = new SVCallRecord("", "chr1", start, true,
             "chr1", start + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1));
 
-    final static SVCallRecordWithEvidence call2_CN0 = new SVCallRecordWithEvidence("chr1", start2, true,
+    final static SVCallRecord call2_CN0 = new SVCallRecord("", "chr1", start2, true,
             "chr1", start2 + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1_CN0),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1_CN0));
 
     final static Genotype sample3 = GenotypeBuilder.create("sample3", Collections.singletonList(Allele.create("<"+GATKSVVCFConstants.SYMB_ALT_STRING_DEL +">", false)));
 
-    final static SVCallRecordWithEvidence sameBoundsSampleMismatch = new SVCallRecordWithEvidence("chr1", start, true,
+    final static SVCallRecord sameBoundsSampleMismatch = new SVCallRecord("", "chr1", start, true,
             "chr1", start + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample3),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample3));
 
     final static List<Genotype> threeGenotypes = Arrays.asList(sample1, sample2, sample3);
 
-    final static SVCallRecordWithEvidence inversion = new SVCallRecordWithEvidence("chr1", 10000, true, "chr1", 20000, true,
-            StructuralVariantType.INV, 10001, Arrays.asList("SR", "PE"), Collections.singletonList(sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    final static SVCallRecord inversion = new SVCallRecord("", "chr1", 10000, true, "chr1", 20000, true,
+            StructuralVariantType.INV, 10001, Arrays.asList("SR", "PE"), Collections.singletonList(sample2));
 
-    static final SVCallRecordWithEvidence depthOnly = new SVCallRecordWithEvidence("chr1", 10000, true, "chr1", 20000, true,
-            StructuralVariantType.CNV, 10001, Collections.singletonList("depth"), Collections.singletonList(sample1),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    static final SVCallRecord depthOnly = new SVCallRecord("", "chr1", 10000, true, "chr1", 20000, true,
+            StructuralVariantType.CNV, 10001, Collections.singletonList("depth"), Collections.singletonList(sample1));
 
-    static final SVCallRecordWithEvidence depthAndStuff = new SVCallRecordWithEvidence("chr1", 10000, true, "chr1", 20000, true,
-                    StructuralVariantType.CNV, 10001, Arrays.asList("depth", "PE"), Collections.singletonList(sample2),
-                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    static final SVCallRecord depthAndStuff = new SVCallRecord("", "chr1", 10000, true, "chr1", 20000, true,
+                    StructuralVariantType.CNV, 10001, Arrays.asList("depth", "PE"), Collections.singletonList(sample2));
 
-    final static SVCallRecordWithEvidence overlapsCall1 = new SVCallRecordWithEvidence("chr1", start3, true,
+    final static SVCallRecord overlapsCall1 = new SVCallRecord("", "chr1", start3, true,
             "chr1", start3 + length -1, true,
             StructuralVariantType.CNV, length,
             Collections.singletonList(GATKSVVCFConstants.DEPTH_ALGORITHM),
-            Arrays.asList(sample1, sample2),
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            Arrays.asList(sample1, sample2));
 }

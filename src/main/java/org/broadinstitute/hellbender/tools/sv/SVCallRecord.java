@@ -161,7 +161,8 @@ public class SVCallRecord implements SVLocatable {
                 contigB.equals(that.contigB) &&
                 type == that.type &&
                 algorithms.equals(that.algorithms) &&
-                genotypes.equals(that.genotypes);
+                genotypes.size() == that.genotypes.size() &&
+                genotypes.containsAll(that.genotypes);  // TODO : List comparison expensive like this
     }
 
     @Override
