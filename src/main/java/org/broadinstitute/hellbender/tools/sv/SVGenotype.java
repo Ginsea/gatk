@@ -1,9 +1,10 @@
 package org.broadinstitute.hellbender.tools.sv;
 
 import com.google.common.collect.Lists;
-import htsjdk.variant.variantcontext.*;
+import htsjdk.variant.variantcontext.StructuralVariantType;
+import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.variantcontext.writer.VariantContextWriter;
-import htsjdk.variant.vcf.*;
+import htsjdk.variant.vcf.VCFHeader;
 import org.broadinstitute.barclay.argparser.Argument;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
 import org.broadinstitute.barclay.argparser.ExperimentalFeature;
@@ -16,15 +17,17 @@ import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.utils.io.IOUtils;
-import org.broadinstitute.hellbender.utils.python.StreamingPythonScriptExecutor;
-import org.broadinstitute.hellbender.utils.runtime.AsynchronousStreamWriter;
+import org.broadinstitute.hellbender.utils.io.Resource;
+import org.broadinstitute.hellbender.utils.python.PythonScriptExecutor;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +59,8 @@ import java.util.stream.Collectors;
 public class SVGenotype extends TwoPassVariantWalker {
 
     private final static String NL = String.format("%n");
+
+    public static final String SV_GENOTYPE_PYTHON_SCRIPT = "svgenotyper_genotype.py";
 
     static final String USAGE_ONE_LINE_SUMMARY = "Run model to genotype structural variants";
     static final String USAGE_SUMMARY = "Run model to genotype structural variants";
@@ -102,7 +107,7 @@ public class SVGenotype extends TwoPassVariantWalker {
 
     // Create the Python executor. This doesn't actually start the Python process, but verifies that
     // the requestedPython executable exists and can be located.
-    final StreamingPythonScriptExecutor<String> pythonExecutor = new StreamingPythonScriptExecutor<>(true);
+    final PythonScriptExecutor pythonExecutor = new PythonScriptExecutor(true);
 
     private StructuralVariantType svType;
     private VariantContextWriter vcfWriter;
@@ -158,20 +163,18 @@ public class SVGenotype extends TwoPassVariantWalker {
             throw new UserException.BadInput("VCF and genotype model sample sets are not identical");
         }
 
-        // Start the Python process and initialize a stream writer for streaming data to the Python code
-        pythonExecutor.start(Collections.emptyList(), enableJournal, pythonProfileResults);
-        pythonExecutor.initStreamWriter(AsynchronousStreamWriter.stringSerializer);
-
         // Execute Python code to initialize training
-        logger.info("Sampling posterior distribution...");
         final File tempDir = IOUtils.createTempDir(modelName + ".");
         final File tempFile = new File(Paths.get(tempDir.getAbsolutePath(), modelName + ".genotypes.tsv").toString());
-        pythonExecutor.sendSynchronousCommand("import svgenotyper" + NL);
-        pythonExecutor.sendSynchronousCommand("args = " + generatePythonArgumentsDictionary(tempFile) + NL);
-        final String runGenotypeCommand = "svgenotyper.genotype.run(" +
-                "args=args, svtype_str='" + svType.name() + "')" + NL;
-        pythonExecutor.sendSynchronousCommand(runGenotypeCommand);
-        logger.info("Sampling completed!");
+        logger.info("Executing training script...");
+        final boolean result = pythonExecutor.executeScript(
+                new Resource(SV_GENOTYPE_PYTHON_SCRIPT, getClass()),
+                null,
+                generatePythonArguments(tempFile));
+        if (!result) {
+            throw new GATKException("Python process returned non-zero exit code");
+        }
+        logger.info("Script completed with normal exit code.");
 
         logger.info("Reading output file...");
         genotypeEngine = new SVGenotypeEngineFromModel();
@@ -184,7 +187,6 @@ public class SVGenotype extends TwoPassVariantWalker {
         } catch (final IOException e) {
             throw new RuntimeException("Error reading from Python output file in: " + tempFile.getAbsolutePath());
         }
-        pythonExecutor.terminate();
 
         vcfWriter = createVCFWriter(outputVcf);
         final VCFHeader header = getHeaderForVariants();
@@ -204,7 +206,6 @@ public class SVGenotype extends TwoPassVariantWalker {
         }
     }
 
-
     @Override
     public Object onTraversalSuccess() {
         vcfWriter.close();
@@ -216,19 +217,22 @@ public class SVGenotype extends TwoPassVariantWalker {
         return null;
     }
 
-    private String generatePythonArgumentsDictionary(final File output) {
+    private List<String> generatePythonArguments(final File output) {
         final List<String> arguments = new ArrayList<>();
-        arguments.add("'output': '" + output.getAbsolutePath() + "'");
-        arguments.add("'model_name': '" + modelName + "'");
-        arguments.add("'model_dir': '" + modelDir + "'");
-        arguments.add("'device': '" + device + "'");
-        arguments.add("'random_seed': " + randomSeed);
-        arguments.add("'genotype_predictive_samples': " + predictiveSamples);
-        arguments.add("'genotype_predictive_iter': " + predictiveIter);
-        arguments.add("'genotype_discrete_samples': " + discreteSamples);
-        arguments.add("'genotype_discrete_log_freq': " + discreteLogFreq);
-        arguments.add("'jit': " + (enableJit ? "True" : "False"));
-        return "{ " + String.join(", ", arguments) + " }";
+        arguments.add("--output=" + output.getAbsolutePath());
+        arguments.add("--model_name=" + modelName);
+        arguments.add("--model_dir=" + modelDir);
+        arguments.add("--svtype=" + svType.name());
+        arguments.add("--device=" + device);
+        arguments.add("--random_seed=" + randomSeed);
+        arguments.add("--genotype_predictive_samples=" + predictiveSamples);
+        arguments.add("--genotype_predictive_iter=" + predictiveIter);
+        arguments.add("--genotype_discrete_samples=" + discreteSamples);
+        arguments.add("--genotype_discrete_log_freq=" + discreteLogFreq);
+        if (enableJit) {
+            arguments.add("--jit");
+        }
+        return arguments;
     }
 
 }

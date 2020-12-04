@@ -2,15 +2,13 @@ import numpy as np
 import pandas as pd
 import torch
 
-from gatktool import tool
-
 from . import constants
 from .constants import SVTypes
 from .preprocess import compute_preprocessed_tensors
 from .model import SVGenotyperData
 
 
-def load_batch(batch_size: int,
+def load_batch(variants_file_path: str,
                device: str,
                svtype: SVTypes,
                tensor_dtype: torch.dtype):
@@ -21,17 +19,17 @@ def load_batch(batch_size: int,
     sr2_list = []
     ncn_list = []
     cnlp_list = []
-    for _ in range(batch_size):
-        fifo_line = tool.readDataFIFO()
-        fifo_data = fifo_line.split('\t')
-        vid_list.append(fifo_data[0])
-        svlen_list.append(int(fifo_data[1]))
-        pe_list.append([int(x) for x in fifo_data[2].split(';')])
-        sr1_list.append([int(x) for x in fifo_data[3].split(';')])
-        sr2_list.append([int(x) for x in fifo_data[4].split(';')])
-        ncn_list.append([int(x) for x in fifo_data[5].split(';')])
-        if svtype == SVTypes.DEL or svtype == SVTypes.DUP:
-            cnlp_list.append([[int(y) for y in x.split(',')] for x in fifo_data[6].split(';')])
+    with open(variants_file_path, 'r') as f:
+        for line in f:
+            fifo_data = line.split('\t')
+            vid_list.append(fifo_data[0])
+            svlen_list.append(int(fifo_data[1]))
+            pe_list.append([int(x) for x in fifo_data[2].split(';')])
+            sr1_list.append([int(x) for x in fifo_data[3].split(';')])
+            sr2_list.append([int(x) for x in fifo_data[4].split(';')])
+            ncn_list.append([int(x) for x in fifo_data[5].split(';')])
+            if svtype == SVTypes.DEL or svtype == SVTypes.DUP:
+                cnlp_list.append([[int(y) for y in x.split(',')] for x in fifo_data[6].split(';')])
     vid_np = np.asarray(vid_list)
     svlen_t = torch.tensor(svlen_list, device=device, dtype=tensor_dtype)
     pe_t = torch.tensor(pe_list, device=device, dtype=tensor_dtype)
@@ -42,7 +40,7 @@ def load_batch(batch_size: int,
     return vid_np, pe_t, sr1_t, sr2_t, ncn_t, svlen_t, cnlp_t
 
 
-def load_data(batch_size: int,
+def load_data(variants_file_path: str,
               mean_coverage_path: str,
               samples_path: str,
               svtype: SVTypes,
@@ -54,7 +52,7 @@ def load_data(batch_size: int,
     mean_count_df = pd.read_csv(mean_coverage_path, sep='\t', header=None, index_col=0)
     mean_count_t = torch.from_numpy(mean_count_df.values).to(device=device, dtype=tensor_dtype).squeeze(-1) / torch.tensor(constants.DEPTH_PLOIDY).to(device=device, dtype=tensor_dtype)
     samples_np = np.loadtxt(samples_path, dtype=str)
-    vids_np, pe_t, sr1_t, sr2_t, ncn_t, svlen_t, cnlp_t = load_batch(batch_size=batch_size, device=device, svtype=svtype, tensor_dtype=tensor_dtype)
+    vids_np, pe_t, sr1_t, sr2_t, ncn_t, svlen_t, cnlp_t = load_batch(variants_file_path=variants_file_path, device=device, svtype=svtype, tensor_dtype=tensor_dtype)
     if vids_np.shape[0] == 0:
         return None
 

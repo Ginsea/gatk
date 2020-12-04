@@ -64,10 +64,7 @@ def run_training(model: SVGenotyperPyroModel,
         logging.info("Training procedure stopped by keyboard interrupt.")
 
 
-def run(args: dict,
-        batch_size: int,
-        svtype_str: str,
-        default_dtype: torch.dtype = torch.float32):
+def run(args: dict, default_dtype: torch.dtype = torch.float32):
     base_path = os.path.join(args['output_dir'], args['output_name'])
     log_path = base_path + ".log.txt"
     logging.basicConfig(filename=log_path,
@@ -82,25 +79,16 @@ def run(args: dict,
     np.random.seed(args['random_seed'])
     torch.random.manual_seed(args['random_seed'])
     pyro.set_rng_seed(args['random_seed'])
+    svtype = SVTypes[args['svtype']]
 
-    svtype = SVTypes[svtype_str]
-    if args['num_states'] is not None:
-        num_states = args['num_states']
-    elif svtype in [SVTypes.DEL, SVTypes.INS, SVTypes.BND]:
-        num_states = 3
-    elif svtype == SVTypes.DUP:
-        num_states = 5
-    else:
-        raise ValueError('SV type {:s} not supported for genotyping.'.format(str(svtype.name)))
-
-    model = SVGenotyperPyroModel(svtype=svtype, k=num_states, tensor_dtype=default_dtype, mu_eps_pe=args['eps_pe'], mu_eps_sr1=args['eps_sr1'],
+    model = SVGenotyperPyroModel(svtype=svtype, k=args['num_states'], tensor_dtype=default_dtype, mu_eps_pe=args['eps_pe'], mu_eps_sr1=args['eps_sr1'],
                                  mu_eps_sr2=args['eps_sr2'], var_phi_pe=args['phi_pe'], var_phi_sr1=args['phi_sr1'],
                                  var_phi_sr2=args['phi_sr2'], read_length=args['read_length'], device=args['device'])
-    data = io.load_data(batch_size=batch_size, mean_coverage_path=args['coverage_file'], samples_path=args['samples_file'],
+    data = io.load_data(variants_file_path=args['variants_file'], mean_coverage_path=args['coverage_file'], samples_path=args['samples_file'],
                         svtype=svtype, num_states=model.k, depth_dilution_factor=args['depth_dilution_factor'],
                         tensor_dtype=default_dtype, device=args['device'])
     if data is None:
-        logging.info("No records of type {:s} found.".format(str(svtype.name)))
+        logging.warning("No variants found.")
     else:
         logging.info("Training {:s} with {:d} variants and {:d} samples...".format(str(svtype.name), data.pe_t.shape[0], data.pe_t.shape[1]))
         run_training(model=model, data=data, max_iter=args['max_iter'], lr_min=args['lr_min'], lr_init=args['lr_init'],

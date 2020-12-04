@@ -10,9 +10,7 @@ from .model import SVGenotyperPyroModel
 from . import io
 
 
-def run(args,
-        svtype_str: str,
-        default_dtype: torch.dtype = torch.float32):
+def run(args: dict, default_dtype: torch.dtype = torch.float32):
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S')
@@ -23,7 +21,7 @@ def run(args,
     np.random.seed(args['random_seed'])
     torch.random.manual_seed(args['random_seed'])
     pyro.set_rng_seed(args['random_seed'])
-    svtype = SVTypes[svtype_str]
+    svtype = SVTypes[args['svtype']]
 
     base_path = os.path.join(args['model_dir'], args['model_name'])
     params = load_model(base_path)

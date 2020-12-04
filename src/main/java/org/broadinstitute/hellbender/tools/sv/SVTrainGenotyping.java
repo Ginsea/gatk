@@ -7,22 +7,23 @@ import htsjdk.variant.variantcontext.VariantContext;
 import org.broadinstitute.barclay.argparser.Argument;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
 import org.broadinstitute.barclay.argparser.ExperimentalFeature;
-import org.broadinstitute.barclay.argparser.Hidden;
 import org.broadinstitute.barclay.help.DocumentedFeature;
 import org.broadinstitute.hellbender.cmdline.programgroups.StructuralVariantDiscoveryProgramGroup;
 import org.broadinstitute.hellbender.engine.FeatureContext;
 import org.broadinstitute.hellbender.engine.ReadsContext;
 import org.broadinstitute.hellbender.engine.ReferenceContext;
-import org.broadinstitute.hellbender.engine.TwoPassVariantWalker;
+import org.broadinstitute.hellbender.engine.VariantWalker;
+import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.utils.io.IOUtils;
-import org.broadinstitute.hellbender.utils.python.StreamingPythonScriptExecutor;
-import org.broadinstitute.hellbender.utils.runtime.AsynchronousStreamWriter;
+import org.broadinstitute.hellbender.utils.io.Resource;
+import org.broadinstitute.hellbender.utils.python.PythonScriptExecutor;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -53,11 +54,13 @@ import java.util.stream.Collectors;
         programGroup = StructuralVariantDiscoveryProgramGroup.class
 )
 
-public class SVTrainGenotyping extends TwoPassVariantWalker {
+public class SVTrainGenotyping extends VariantWalker {
 
     private final static String NL = String.format("%n");
     private static final String DATA_VALUE_SEPARATOR = ";";
     private static final String DATA_TYPE_SEPARATOR = "\t";
+
+    public static final String SV_TRAIN_GENOTYPING_PYTHON_SCRIPT = "svgenotyper_train.py";
 
     static final String USAGE_ONE_LINE_SUMMARY = "Train model to genotype structural variants";
     static final String USAGE_SUMMARY = "Runs training on a set of variants and generates a genotyping model.";
@@ -128,22 +131,14 @@ public class SVTrainGenotyping extends TwoPassVariantWalker {
     @Argument(fullName = "jit", doc = "Enable JIT compilation", optional = true)
     private boolean enableJit = false;
 
-    @Hidden
-    @Argument(fullName = "enable-journal", shortName = "enable-journal", doc = "Enable streaming process journal.", optional = true)
-    private boolean enableJournal = false;
-
-    @Hidden
-    @Argument(fullName = "python-profile", shortName = "python-profile", doc = "Run the tool with the Python CProfiler on and write results to this file.", optional = true)
-    private File pythonProfileResults;
-
     // Create the Python executor. This doesn't actually start the Python process, but verifies that
     // the requestedPython executable exists and can be located.
-    final StreamingPythonScriptExecutor<String> pythonExecutor = new StreamingPythonScriptExecutor<>(true);
+    final PythonScriptExecutor pythonExecutor = new PythonScriptExecutor(true);
 
-    private File samplesFile = null;
-    private int numRecords = 0;
-    private List<String> batchList= null;
-    private StructuralVariantType svType = null;
+    private File samplesFile;
+    private StructuralVariantType svType;
+    private File variantsFile;
+    private PrintStream variantsFileStream;
 
     private static final int INTRACHROMOSOMAL_LENGTH = Integer.MAX_VALUE;
 
@@ -166,30 +161,22 @@ public class SVTrainGenotyping extends TwoPassVariantWalker {
     @Override
     public void onTraversalStart() {
         samplesFile = createSampleList();
-
-        // Start the Python process and initialize a stream writer for streaming data to the Python code
-        pythonExecutor.start(Collections.emptyList(), enableJournal, pythonProfileResults);
-        pythonExecutor.initStreamWriter(AsynchronousStreamWriter.stringSerializer);
-
-        // Execute Python code to initialize training
-        pythonExecutor.sendSynchronousCommand("import svgenotyper" + NL);
-        final String argsCommand = "args = " + generatePythonArgumentsDictionary();
-        pythonExecutor.sendSynchronousCommand(argsCommand + NL);
-        logger.debug(argsCommand);
+        variantsFile = IOUtils.createTempFile(outputName + ".variants", ".tsv");
+        try {
+            variantsFileStream = new PrintStream(variantsFile);
+        } catch (final IOException e) {
+            throw new GATKException("Could not create temporary file: " + variantsFile.getAbsolutePath());
+        }
+        PythonScriptExecutor.checkPythonEnvironmentForPackage("svgenotyper");
     }
 
     @Override
-    public void firstPassApply(final VariantContext variant,
-                                final ReadsContext readsContext,
-                                final ReferenceContext referenceContext,
-                                final FeatureContext featureContext) {
+    public void apply(final VariantContext variant,
+                      final ReadsContext readsContext,
+                      final ReferenceContext referenceContext,
+                      final FeatureContext featureContext) {
         validateRecord(variant);
-        numRecords++;
-    }
-
-    @Override
-    public void afterFirstPass() {
-        batchList = new ArrayList<>(numRecords);
+        variantsFileStream.println(encodeVariant(variant));
     }
 
     private void validateRecord(final VariantContext variant) {
@@ -213,21 +200,21 @@ public class SVTrainGenotyping extends TwoPassVariantWalker {
     }
 
     @Override
-    public void secondPassApply(final VariantContext variant,
-                                final ReadsContext readsContext,
-                                final ReferenceContext referenceContext,
-                                final FeatureContext featureContext) {
-        addVariantToBatch(variant);
-    }
-
-    @Override
     public Object onTraversalSuccess() {
-        flushBatch();
-        pythonExecutor.terminate();
+        variantsFileStream.close();
+        logger.info("Executing training script...");
+        final boolean result = pythonExecutor.executeScript(
+                new Resource(SV_TRAIN_GENOTYPING_PYTHON_SCRIPT, getClass()),
+                null,
+                generatePythonArguments());
+        if (!result) {
+            throw new GATKException("Python process returned non-zero exit code");
+        }
+        logger.info("Script completed with normal exit code.");
         return null;
     }
 
-    private void addVariantToBatch(final VariantContext variant) {
+    private String encodeVariant(final VariantContext variant) {
         final Map<String, StringBuilder> stringBuilderMap = FORMAT_FIELDS.stream()
                 .collect(Collectors.toMap(s -> s, s -> new StringBuilder()));
         final int numGenotypes = variant.getNSamples();
@@ -273,19 +260,7 @@ public class SVTrainGenotyping extends TwoPassVariantWalker {
             stringBuilder.append(stringBuilderMap.get(attribute).toString() + separator);
             attributeIndex++;
         }
-        stringBuilder.append(NL);
-        batchList.add(stringBuilder.toString());
-    }
-
-    private void flushBatch() {
-        if (!batchList.isEmpty()) {
-            final String svTypeName = svType.name();
-            final String pythonCommand = String.format("svgenotyper.train.run(args=args, batch_size=%d, svtype_str='%s')",
-                    numRecords, svTypeName) + NL;
-            logger.info(String.format("Processing batch of %d variants of type %s", numRecords, svTypeName));
-            pythonExecutor.startBatchWrite(pythonCommand, batchList);
-            pythonExecutor.waitForPreviousBatchCompletion();
-        }
+        return stringBuilder.toString();
     }
 
     private boolean isDepthOnly(final VariantContext variant) {
@@ -297,37 +272,45 @@ public class SVTrainGenotyping extends TwoPassVariantWalker {
         return IOUtils.writeTempFile(samples, outputName + ".samples", ".tmp");
     }
 
-    private String generatePythonArgumentsDictionary() {
-        if (samplesFile == null) {
-            throw new RuntimeException("Samples file doesn't exist");
-        }
+    private List<String> generatePythonArguments() {
         final List<String> arguments = new ArrayList<>();
-        arguments.add("'coverage_file': '" + coverageFile.getAbsolutePath() + "'");
-        arguments.add("'samples_file': '" + samplesFile.getAbsolutePath() + "'");
-        arguments.add("'output_name': '" + outputName + "'");
-        arguments.add("'output_dir': '" + outputDir + "'");
-        arguments.add("'device': '" + device + "'");
-        arguments.add("'num_states': " + (numStates == 0 ? "None" : numStates));
-        arguments.add("'random_seed': " + randomSeed);
-        if (numStates != 0) {
-            arguments.add("'num_states': " + numStates);
+        arguments.add("--variants_file=" + variantsFile.getAbsolutePath());
+        arguments.add("--coverage_file=" + coverageFile.getAbsolutePath());
+        arguments.add("--samples_file=" + samplesFile.getAbsolutePath());
+        arguments.add("--output_name=" + outputName);
+        arguments.add("--output_dir=" + outputDir);
+        arguments.add("--svtype=" + svType.name());
+        arguments.add("--device=" + device);
+
+        final int numStatesArg;
+        if (svType.equals(StructuralVariantType.DEL) || svType.equals(StructuralVariantType.INS) || svType.equals(StructuralVariantType.BND)) {
+            numStatesArg = 3;
+        } else if (svType.equals(StructuralVariantType.DUP)) {
+            numStatesArg = 5;
+        } else {
+            throw new UserException.BadInput("Unsupported SV type: " + svType.name());
         }
-        arguments.add("'depth_dilution_factor': " + depthDilutionFactor);
-        arguments.add("'eps_pe': " + epsilonPE);
-        arguments.add("'eps_sr1': " + epsilonSR1);
-        arguments.add("'eps_sr2': " + epsilonSR2);
-        arguments.add("'phi_pe': " + phiPE);
-        arguments.add("'phi_sr1': " + phiSR1);
-        arguments.add("'phi_sr2': " + phiSR2);
-        arguments.add("'read_length': " + readLength);
-        arguments.add("'lr_decay': " + lrDecay);
-        arguments.add("'lr_min': " + lrMin);
-        arguments.add("'lr_init': " + lrInit);
-        arguments.add("'adam_beta1': " + adamBeta1);
-        arguments.add("'adam_beta2': " + adamBeta2);
-        arguments.add("'max_iter': " + maxIter);
-        arguments.add("'iter_log_freq': " + iterLogFreq);
-        arguments.add("'jit': " + (enableJit ? "True" : "False"));
-        return "{ " + String.join(", ", arguments) + " }";
+        arguments.add("--num_states=" + numStatesArg);
+
+        arguments.add("--random_seed=" + randomSeed);
+        arguments.add("--depth_dilution_factor=" + depthDilutionFactor);
+        arguments.add("--eps_pe=" + epsilonPE);
+        arguments.add("--eps_sr1=" + epsilonSR1);
+        arguments.add("--eps_sr2=" + epsilonSR2);
+        arguments.add("--phi_pe=" + phiPE);
+        arguments.add("--phi_sr1=" + phiSR1);
+        arguments.add("--phi_sr2=" + phiSR2);
+        arguments.add("--read_length=" + readLength);
+        arguments.add("--lr_decay=" + lrDecay);
+        arguments.add("--lr_min=" + lrMin);
+        arguments.add("--lr_init=" + lrInit);
+        arguments.add("--adam_beta1=" + adamBeta1);
+        arguments.add("--adam_beta2=" + adamBeta2);
+        arguments.add("--max_iter=" + maxIter);
+        arguments.add("--iter_log_freq=" + iterLogFreq);
+        if (enableJit) {
+            arguments.add("--jit");
+        }
+        return arguments;
     }
 }
