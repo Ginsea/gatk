@@ -32,8 +32,8 @@ import java.util.stream.Collectors;
  *   Calculate probability of observing the background count:
  *      p = P(X < x_b)
  *
- *   We then select the site with the lowest score. Sites are restricted by upper and lower bounds for the start
- *   and end of the breakpoint, respectively (see {@link BreakpointRefiner#getStartAndEndBounds(SVCallRecord)}.
+ *   We then select the site with the lowest score. Breakpoint end positions are restricted by a lowerbound that depends
+ *   on the refined start position (see {@link BreakpointRefiner#getEndLowerBound(SVCallRecord, int)}.
  */
 public class BreakpointRefiner {
 
@@ -80,17 +80,12 @@ public class BreakpointRefiner {
         final Set<String> backgroundSamples = getBackgroundSamples(call);
         final Set<String> calledSamples = call.getCalledSamples();
 
-        // Limits on start / end positions
-        final int[] bounds = getStartAndEndBounds(call);
-        final int startUpperBound = bounds[0];
-        final int endLowerBound = bounds[1];
 
         // Refine start
-        final int defaultStartPosition = Math.min(startUpperBound, call.getPositionA());
-        final List<SplitReadSite> validStartSites = getValidStartSplitReadSites(call, startUpperBound);
-        final SplitReadSite refinedStartSite = getRefinedSite(validStartSites, calledSamples, backgroundSamples, defaultStartPosition);
+        final SplitReadSite refinedStartSite = getRefinedSite(call.getStartSplitReadSites(), calledSamples, backgroundSamples, call.getPositionA());
 
         // Refine end
+        final int endLowerBound = getEndLowerBound(call, refinedStartSite.getPosition());
         final int defaultEndPosition = Math.max(endLowerBound, call.getPositionB());
         final List<SplitReadSite> validEndSites = getValidEndSplitReadSites(call, endLowerBound);
         final SplitReadSite refinedEndSite = getRefinedSite(validEndSites, calledSamples, backgroundSamples, defaultEndPosition);
@@ -101,17 +96,6 @@ public class BreakpointRefiner {
                 refinedEndSite.getPosition(), call.getStrandB(), call.getType(), call.getLength(), call.getAlgorithms(),
                 call.getGenotypes(), call.getStartSplitReadSites(), call.getEndSplitReadSites(), call.getDiscordantPairs(),
                 call.getCopyNumberDistribution());
-    }
-
-    /**
-     * Filters start sites with position greater than upper-bound
-     *
-     * @param call
-     * @param upperBound max position
-     * @return filtered set of start sites
-     */
-    private List<SplitReadSite> getValidStartSplitReadSites(final SVCallRecordWithEvidence call, final int upperBound) {
-        return call.getStartSplitReadSites().stream().filter(s -> s.getPosition() <= upperBound).collect(Collectors.toList());
     }
 
     /**
@@ -136,24 +120,22 @@ public class BreakpointRefiner {
     }
 
     /**
-     * Determines upper-bound on start site position and lower-bound on end site position (both inclusive).
-     * For inter-chromosomal variants, boundaries are at the ends of the chromsomes (any position is valid).
-     * For insertions, {@link BreakpointRefiner#maxInsertionSplitReadCrossDistance} is used to determine how far
-     * past the original breakpoint each side can be. Otherwise, we use the midpoint of the original coordinates.
+     * Determines lower-bound on end site position (inclusive). For inter-chromosomal variants, boundaries are at the
+     * start of the chromsome (any position is valid). For insertions, {@link BreakpointRefiner#maxInsertionSplitReadCrossDistance}
+     * is used to determine how far past the original breakpoint it can be. Otherwise, we just use the new start position.
      *
      * @param call
-     * @return 2-element array where arr[0] and arr[1] as the start and end site boundaries, respectively
+     * @param refinedStartPosition new start position of call
+     * @return position
      */
-    private int[] getStartAndEndBounds(final SVCallRecord call) {
+    private int getEndLowerBound(final SVCallRecord call, final int refinedStartPosition) {
         if (!SVCallRecordUtils.isIntrachromosomal(call)) {
-            return new int[] {dictionary.getSequence(call.getContigA()).getSequenceLength(), 1};
+            return 1;
         }
         if (call.getType().equals(StructuralVariantType.INS)) {
-            return new int[] {call.getPositionB() + maxInsertionSplitReadCrossDistance,
-                    call.getPositionA() - maxInsertionSplitReadCrossDistance};
+            return refinedStartPosition - maxInsertionSplitReadCrossDistance;
         }
-        final int midPoint = (call.getPositionA() + call.getPositionB()) / 2;
-        return new int[] {midPoint, midPoint};
+        return refinedStartPosition + 1;
     }
 
     /**
