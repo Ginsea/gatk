@@ -165,7 +165,7 @@ public class SVClusterEngine extends LocatableClusterEngine<SVCallRecord> {
     @Override
     protected SVDeduplicator<SVCallRecord> getDeduplicator() {
         final Function<Collection<SVCallRecord>,SVCallRecord> collapser = SVCallRecordUtils::deduplicateWithRawCallAttribute;
-        return new SVCallRecordDeduplicator(collapser, dictionary);
+        return new SVCallRecordDeduplicator<>(collapser, dictionary);
     }
 
     protected boolean clusterTogetherBothDepthOnly(final SVCallRecord a, final SVCallRecord b) {

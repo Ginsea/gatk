@@ -5,7 +5,6 @@ import os
 import pyro
 import torch
 
-from . import constants
 from .constants import SVTypes
 from .model import SVGenotyperPyroModel
 from . import io
@@ -39,19 +38,22 @@ def run(args,
     vids_list = io.load_list(base_path + ".vids.list")
     data = io.load_tensors(base_path=base_path, svtype=svtype, tensor_dtype=default_dtype, device=args['device'])
 
-    predictive_samples = model.run_predictive(data=data, n_samples=args['genotype_predictive_samples'])
-    discrete_samples = model.run_discrete(data=data, svtype=svtype, log_freq=args['genotype_discrete_log_freq'], n_samples=args['genotype_discrete_samples'])
-    freq = calculate_state_frequencies(model=model, discrete_samples=discrete_samples)
-    #genotypes = get_genotypes(freq_z=freq['z'])
-    stats = get_predictive_stats(samples=predictive_samples)
-    stats.update(get_discrete_stats(samples=discrete_samples))
+    posterior = model.run_predictive(data=data, n_samples=args['genotype_predictive_samples'],
+                                     n_iter=args['genotype_predictive_iter'])
+    #stats = get_predictive_stats(samples=predictive_samples)
 
-    output = get_output(vids_list=vids_list, freq_z=freq['z'], stats=stats, params=params)
-    global_stats = get_global_stats(stats=stats, model=model)
+    discrete_posterior = model.run_discrete(data=data, svtype=svtype, n_states=model.k,
+                                            log_freq=args['genotype_discrete_log_freq'],
+                                            n_samples=args['genotype_discrete_samples'])
+    #freq = calculate_state_frequencies(model=model, discrete_samples=discrete_samples)
+    #posterior.update(get_discrete_stats(samples=discrete_samples))
+    posterior.update(discrete_posterior)
+
+    output = get_output(vids_list=vids_list, stats=posterior, params=params)
+    #global_stats = get_global_stats(stats=stats, model=model)
 
     io.write_variant_output(output_path=args['output'], output_data=output)
-
-    return output, global_stats
+    return output
 
 
 def convert_type(dat):
@@ -60,7 +62,7 @@ def convert_type(dat):
     return dat
 
 
-def get_output(vids_list: list, freq_z: dict, stats: dict, params: dict):
+def get_output(vids_list: list, stats: dict, params: dict):
     n_variants = len(vids_list)
     output_dict = {}
     for i in range(n_variants):
@@ -78,7 +80,7 @@ def get_output(vids_list: list, freq_z: dict, stats: dict, params: dict):
         #else:
         #    eta_r = 0
         output_dict[vid] = {
-            'freq_z': freq_z[i, :],
+            'freq_z': stats['z']['mean'][i, :],
             'p_m_pe': stats['m_pe']['mean'][i],
             'p_m_sr1': stats['m_sr1']['mean'][i],
             'p_m_sr2': stats['m_sr2']['mean'][i],
@@ -122,20 +124,6 @@ def get_predictive_stats(samples: dict):
 def get_discrete_stats(samples: dict):
     discrete_sites = ['m_pe', 'm_sr1', 'm_sr2'] #, 'm_rd']
     return {key: {'mean': samples[key].astype(dtype='float').mean(axis=0).squeeze()} for key in discrete_sites}
-
-
-def get_genotypes(freq_z: dict):
-    gt = freq_z.argmax(axis=2)
-    freq_sorted = np.sort(freq_z, axis=2)
-    gt_p = freq_sorted[..., -1]
-    gt_lod = np.log(freq_sorted[..., -1]) - np.log(freq_sorted[..., -2])
-    gt_lod[np.isinf(gt_lod)] = constants.MAX_GT_LOD
-    gt_lod[gt_lod > constants.MAX_GT_LOD] = constants.MAX_GT_LOD
-    return {
-        'gt': gt,
-        'gt_p': gt_p,
-        'gt_lod': gt_lod
-    }
 
 
 def calculate_state_frequencies(model: SVGenotyperPyroModel, discrete_samples: dict):

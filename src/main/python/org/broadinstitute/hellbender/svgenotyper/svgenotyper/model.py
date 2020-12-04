@@ -234,22 +234,35 @@ class SVGenotyperPyroModel(object):
                 #pyro.sample('sr1_obs', dist.NegativeBinomial(total_count=r_sr1, probs=p_sr1), obs=data_sr1)
                 #pyro.sample('sr2_obs', dist.NegativeBinomial(total_count=r_sr2, probs=p_sr2), obs=data_sr2)
 
-    def run_predictive(self, data: SVGenotyperData, n_samples: int = 1000):
+    def run_predictive(self, data: SVGenotyperData, n_samples: int = 100, n_iter: int = 10):
         logging.info("Running predictive distribution inference...")
         predictive = Predictive(self.model, guide=self.guide, num_samples=n_samples, return_sites=self.latent_sites)
-        sample = predictive(data_pe=data.pe_t, data_sr1=data.sr1_t, data_sr2=data.sr2_t, depth_t=data.depth_t,
-                            svlen_t=data.svlen_t, rd_gt_prob_t=data.rd_gt_prob_t)
-        logging.info("Inference complete.")
-        return {key: sample[key].detach().cpu().numpy() for key in sample}
 
-    def run_discrete(self, data: SVGenotyperData, svtype: SVTypes, log_freq: int = 100, n_samples: int = 1000):
+        posterior_means = None
+        for i in range(n_iter):
+            logging.info("Iteration {:d} of {:d}...".format(i + 1, n_iter))
+            sample = predictive(data_pe=data.pe_t, data_sr1=data.sr1_t, data_sr2=data.sr2_t, depth_t=data.depth_t,
+                                svlen_t=data.svlen_t, rd_gt_prob_t=data.rd_gt_prob_t)
+            sample_means = {key: {"mean": sample[key].detach().cpu().numpy().astype(dtype='float').mean(axis=0).squeeze()} for key in sample}
+            if posterior_means is None:
+                posterior_means = sample_means
+            else:
+                for key in posterior_means:
+                    posterior_means[key]["mean"] += sample_means[key]["mean"]
+
+        for key in posterior_means:
+            posterior_means[key]["mean"] = posterior_means[key]["mean"] / n_iter
+        logging.info("Inference complete.")
+        return posterior_means
+
+    def run_discrete(self, data: SVGenotyperData, svtype: SVTypes, n_states: int, log_freq: int = 100, n_samples: int = 1000):
         logging.info("Running discrete inference...")
-        sites = ['z', 'm_sr1', 'm_sr2']
+        binary_sites = ['m_sr1', 'm_sr2']
         if svtype == SVTypes.DEL or svtype == SVTypes.DUP or svtype == SVTypes.BND:
-            sites.append('m_pe')
+            binary_sites.append('m_pe')
         #if svtype == SVTypes.DEL or svtype == SVTypes.DUP:
-        #    sites.append('m_rd')
-        posterior_samples = []
+        #    binary_sites.append('m_rd')
+        posterior_means = None
         guide_trace = poutine.trace(self.guide).get_trace(data_pe=data.pe_t, data_sr1=data.sr1_t,
                                                           data_sr2=data.sr2_t, depth_t=data.depth_t,
                                                           svlen_t=data.svlen_t, rd_gt_prob_t=data.rd_gt_prob_t)
@@ -260,30 +273,44 @@ class SVGenotyperPyroModel(object):
                 trace = poutine.trace(inferred_model).get_trace(data_pe=data.pe_t, data_sr1=data.sr1_t,
                                                                 data_sr2=data.sr2_t, depth_t=data.depth_t,
                                                                 svlen_t=data.svlen_t, rd_gt_prob_t=data.rd_gt_prob_t)
-                posterior_samples.append({site: trace.nodes[site]["value"].detach().cpu() for site in sites})
+                binary_sites_sample = {site: {"mean": trace.nodes[site]["value"].detach().cpu().numpy().astype(dtype='float').squeeze()} for site in binary_sites}
+                states_sample = trace.nodes["z"]["value"].detach().cpu().numpy().astype(dtype='float').squeeze()
+                states_sample_one_hot = np.zeros([states_sample.shape[0], states_sample.shape[1], n_states], dtype='float')
+                for j in range(n_states):
+                    states_sample_one_hot[states_sample == j, j] = 1.
+                if posterior_means is None:
+                    posterior_means = binary_sites_sample
+                    posterior_means["z"] = {"mean": states_sample_one_hot}
+                else:
+                    for site in binary_sites:
+                        posterior_means[site]["mean"] += binary_sites_sample[site]["mean"]
+                    posterior_means["z"]["mean"] += states_sample_one_hot
                 if (i + 1) % log_freq == 0:
                     logging.info("[sample {:d}] discrete latent".format(i + 1))
-        posterior_samples = {site: torch.stack([posterior_samples[i][site] for i in range(n_samples)], dim=0).numpy() for site in sites}
+        #posterior_samples = {site: torch.stack([posterior_samples[i][site] for i in range(n_samples)], dim=0).numpy() for site in sites}
+        for key in posterior_means:
+            posterior_means[key]["mean"] = posterior_means[key]["mean"] / n_samples
         logging.info("Inference complete.")
+        return posterior_means
 
-        z = posterior_samples['z']
-        m_sr1 = posterior_samples['m_sr1']
-        m_sr2 = posterior_samples['m_sr2']
-        if 'm_pe' in posterior_samples:
-            m_pe = posterior_samples['m_pe']
-        else:
-            m_pe = np.zeros(m_sr1.shape)
-        #if 'm_rd' in posterior_samples:
-        #    m_rd = posterior_samples['m_rd']
+        #z = posterior_samples['z']
+        #m_sr1 = posterior_samples['m_sr1']
+        #m_sr2 = posterior_samples['m_sr2']
+        #if 'm_pe' in posterior_samples:
+        #    m_pe = posterior_samples['m_pe']
         #else:
-        #    m_rd = np.zeros(m_sr1.shape)
-        return {
-            "z": z,
-            "m_pe": m_pe,
-            "m_sr1": m_sr1,
-            "m_sr2": m_sr2,
-        #    "m_rd": m_rd
-        }
+        #    m_pe = np.zeros(m_sr1.shape)
+        ##if 'm_rd' in posterior_samples:
+        ##    m_rd = posterior_samples['m_rd']
+        ##else:
+        ##    m_rd = np.zeros(m_sr1.shape)
+        #return {
+        #    "z": z,
+        #    "m_pe": m_pe,
+        #    "m_sr1": m_sr1,
+        #    "m_sr2": m_sr2,
+        ##    "m_rd": m_rd
+        #}
 
     def run_discrete_full(self, data: SVGenotyperData, svtype: SVTypes, log_freq: int = 100, n_samples: int = 1000):
         logging.info("Running discrete inference...")

@@ -50,7 +50,7 @@ public class SVDepthOnlyCallDefragmenter extends LocatableClusterEngine<SVCallRe
     @Override
     protected SVDeduplicator<SVCallRecord> getDeduplicator() {
         final Function<Collection<SVCallRecord>,SVCallRecord> collapser = SVCallRecordUtils::deduplicateWithRawCallAttribute;
-        return new SVCallRecordDeduplicator(collapser, dictionary);
+        return new SVCallRecordDeduplicator<>(collapser, dictionary);
     }
 
     protected List<Genotype> deduplicateGenotypes(final List<Genotype> clusterGenotypes) {

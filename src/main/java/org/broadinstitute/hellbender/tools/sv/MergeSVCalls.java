@@ -146,7 +146,7 @@ public final class MergeSVCalls extends GATKTool {
 
         // Deduplicate
         final Function<Collection<SVCallRecord>, SVCallRecord> collapser = SVCallRecordUtils::deduplicateWithRawCallAttribute;
-        final SVCallRecordDeduplicator deduplicator = new SVCallRecordDeduplicator(collapser, dictionary);
+        final SVCallRecordDeduplicator<SVCallRecord> deduplicator = new SVCallRecordDeduplicator<>(collapser, dictionary);
         records = deduplicator.deduplicateItems(records);
 
         // Write

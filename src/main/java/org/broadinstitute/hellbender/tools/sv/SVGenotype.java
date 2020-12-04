@@ -77,10 +77,13 @@ public class SVGenotype extends TwoPassVariantWalker {
     @Argument(fullName = "random-seed", doc = "PRNG seed", optional = true)
     private int randomSeed = 92837488;
 
-    @Argument(fullName = "predictive-samples", doc = "Number of samples for predictive distribution", optional = true)
-    private int predictiveSamples = 1000;
+    @Argument(fullName = "predictive-samples", doc = "Number of samples per iteration for predictive distribution", optional = true)
+    private int predictiveSamples = 100;
 
-    @Argument(fullName = "discrete-samples", doc = "Number of samples for discrete distribution", optional = true)
+    @Argument(fullName = "predictive-iter", doc = "Number of iterations for predictive distribution", optional = true)
+    private int predictiveIter = 10;
+
+    @Argument(fullName = "discrete-samples", doc = "Number of samples per iteration for discrete distribution", optional = true)
     private int discreteSamples = 1000;
 
     @Argument(fullName = "discrete-log-freq", doc = "Number of iterations between log messages for discrete sampling", optional = true)
@@ -165,7 +168,7 @@ public class SVGenotype extends TwoPassVariantWalker {
         final File tempFile = new File(Paths.get(tempDir.getAbsolutePath(), modelName + ".genotypes.tsv").toString());
         pythonExecutor.sendSynchronousCommand("import svgenotyper" + NL);
         pythonExecutor.sendSynchronousCommand("args = " + generatePythonArgumentsDictionary(tempFile) + NL);
-        final String runGenotypeCommand = "output, global_stats_by_type = svgenotyper.genotype.run(" +
+        final String runGenotypeCommand = "svgenotyper.genotype.run(" +
                 "args=args, svtype_str='" + svType.name() + "')" + NL;
         pythonExecutor.sendSynchronousCommand(runGenotypeCommand);
         logger.info("Sampling completed!");
@@ -221,6 +224,7 @@ public class SVGenotype extends TwoPassVariantWalker {
         arguments.add("'device': '" + device + "'");
         arguments.add("'random_seed': " + randomSeed);
         arguments.add("'genotype_predictive_samples': " + predictiveSamples);
+        arguments.add("'genotype_predictive_iter': " + predictiveIter);
         arguments.add("'genotype_discrete_samples': " + discreteSamples);
         arguments.add("'genotype_discrete_log_freq': " + discreteLogFreq);
         arguments.add("'jit': " + (enableJit ? "True" : "False"));

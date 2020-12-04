@@ -177,11 +177,11 @@ public final class SVCallRecordUtils {
     }
 
     public static <T extends SVLocatable> Comparator<T> getSVLocatableComparator(final SAMSequenceDictionary dictionary) {
-        return (o1, o2) -> compareSVLocatables((T) o1, (T) o2, dictionary);
+        return (o1, o2) -> compareSVLocatables(o1, o2, dictionary);
     }
 
     public static <T extends SVCallRecord> Comparator<T> getCallComparator(final SAMSequenceDictionary dictionary) {
-        return (o1, o2) -> compareCalls((T) o1, (T) o2, dictionary);
+        return (o1, o2) -> compareCalls(o1, o2, dictionary);
     }
 
     public static int compareSVLocatables(final SVLocatable first, final SVLocatable second, final SAMSequenceDictionary dictionary) {
@@ -472,7 +472,7 @@ public final class SVCallRecordUtils {
     private static List<Genotype> collapseRecordGenotypesWithRawCallAttribute(final Collection<? extends SVCallRecord> records) {
         return records.stream()
                 .map(SVCallRecord::getGenotypes)
-                .flatMap(Collection::stream)
+                .flatMap(g -> g.stream())
                 .collect(Collectors.groupingBy(Genotype::getSampleName))
                 .values()
                 .stream()
