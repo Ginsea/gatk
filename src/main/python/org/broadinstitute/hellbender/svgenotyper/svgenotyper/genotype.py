@@ -62,7 +62,7 @@ def convert_type(dat):
 
 def get_output(vids_list: list, stats: dict, params: dict):
     n_variants = len(vids_list)
-    output_dict = {}
+    output_list = []
     for i in range(n_variants):
         vid = vids_list[i]
         if 'eps_pe' in stats:
@@ -81,7 +81,8 @@ def get_output(vids_list: list, stats: dict, params: dict):
         #    eta_r = stats['eta_r']['mean'][i] * params['mu_eta_r']
         #else:
         #    eta_r = 0
-        output_dict[vid] = {
+        output_list.append({
+            'vid': vids_list[i],
             'freq_z': stats['z']['mean'][i, :],
             'p_m_pe': p_m_pe,
             'p_m_sr1': stats['m_sr1']['mean'][i],
@@ -95,8 +96,8 @@ def get_output(vids_list: list, stats: dict, params: dict):
             'phi_sr2': stats['phi_sr2']['mean'][i],
             #'eta_q': stats['eta_q']['mean'][i] * params['mu_eta_q'],
             #'eta_r': eta_r
-        }
-    return output_dict
+        })
+    return output_list
 
 
 def get_global_stats(stats: dict, model: SVGenotyperPyroModel):

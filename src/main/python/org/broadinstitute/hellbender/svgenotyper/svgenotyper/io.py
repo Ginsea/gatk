@@ -69,9 +69,9 @@ def write_variant_output(output_path: str, output_data: dict):
     with open(output_path, 'w') as f:
         line = "#" + "\t".join(header)
         f.write(line + "\n")
-        for vid, dat in output_data.items():
-            z_freq = pretty_print_2d_array(dat['freq_z'])
-            line = "\t".join([vid, z_freq] + [str(dat[x]) for x in param_keys])
+        for d in output_data:
+            z_freq = pretty_print_2d_array(d['freq_z'])
+            line = "\t".join([d['vid'], z_freq] + [str(d[x]) for x in param_keys])
             f.write(line + "\n")
 
 

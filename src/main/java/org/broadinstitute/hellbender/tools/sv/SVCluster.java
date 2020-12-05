@@ -81,6 +81,7 @@ public final class SVCluster extends VariantWalker {
     public static final String MIN_SIZE_LONG_NAME = "min-size";
     public static final String DEPTH_ONLY_INCLUDE_INTERVAL_OVERLAP_LONG_NAME = "depth-include-overlap";
     public static final String MIN_DEPTH_SIZE_LONG_NAME = "min-depth-size";
+    public static final String VARIANT_PREFIX_LONG_NAME = "variant-prefix";
 
     @Argument(
             doc = "Split reads file",
@@ -132,6 +133,13 @@ public final class SVCluster extends VariantWalker {
             optional = true
     )
     private int minDepthOnlySize = 5000;
+
+    @Argument(
+            doc = "Prefix for variant IDs",
+            fullName = VARIANT_PREFIX_LONG_NAME,
+            optional = true
+    )
+    private String variantPrefix = "SV_x";
 
     private SAMSequenceDictionary dictionary;
     private final Map<String,IntervalTree<Object>> includedIntervalsTreeMap = new HashMap<>();
@@ -324,7 +332,7 @@ public final class SVCluster extends VariantWalker {
         final GenotypesContext rawCallSetGenotypes = SVCallRecordUtils.filterAndAddGenotypeAttributes(filledGenotypes, g -> true, attributeGenerator, false);
 
         final GenotypesContext nonCallGenotypes = SVCallRecordUtils.predicateGenotypeAlleles(rawCallSetGenotypes, g -> true, Collections.emptyList(), Collections.emptyList());
-        final String newId = String.format("SVx%08x", numVariantsWritten++);
+        final String newId = String.format("%s%08x", variantPrefix, numVariantsWritten++);
         final SVCallRecordWithEvidence finalCall = new SVCallRecordWithEvidence(newId, call.getContigA(), call.getPositionA(), call.getStrandA(), call.getContigB(),
                 call.getPositionB(), call.getStrandB(), call.getType(), call.getLength(), call.getAlgorithms(),
                 nonCallGenotypes, call.getStartSplitReadSites(), call.getEndSplitReadSites(), call.getDiscordantPairs(),
