@@ -109,8 +109,8 @@ public class PythonScriptExecutor extends PythonExecutorBase {
      *
      * @param scriptResource {@link Resource} for the script to execute
      * @param pythonProcessArgs args to be passed to the python process
-     * @param scriptArgs args to be passed to the python codescriptArgs
-     * @return process output
+     * @param scriptArgs args to be passed to the python code
+     * @return process output of executed Python process
      */
     public ProcessOutput executeScriptAndGetOutput(final Resource scriptResource, final List<String> pythonProcessArgs, final List<String> scriptArgs) {
         Utils.nonNull(scriptResource, "script resource cannot be null");
@@ -128,7 +128,7 @@ public class PythonScriptExecutor extends PythonExecutorBase {
      *
      * @param scriptResource {@link Resource} for the script to execute
      * @param pythonProcessArgs args to be passed to the python process
-     * @param scriptArgs args to be passed to the python codescriptArgs
+     * @param scriptArgs args to be passed to the python code
      * @return true if the command succeeds, otherwise false
      */
     public boolean executeScript(final Resource scriptResource, final List<String> pythonProcessArgs, final List<String> scriptArgs) {
@@ -143,34 +143,12 @@ public class PythonScriptExecutor extends PythonExecutorBase {
     }
 
     /**
-     * Auxiliary method that validates and compile python command line argument list
-     */
-    private List<String> validateAndBuildCommand(final String scriptName, final List<String> pythonProcessArgs, final List<String> scriptArgs) {
-        Utils.nonNull(scriptName, "script name cannot be null");
-        if (!scriptName.endsWith(PYTHON_EXTENSION)) {
-            throw new IllegalArgumentException(String.format("Python script name (%s) must end with \"%s\"",
-                    scriptName,
-                    PYTHON_EXTENSION));
-        }
-
-        final List<String> args = new ArrayList<>();
-        if (pythonProcessArgs != null) {
-            args.addAll(pythonProcessArgs);
-        }
-        args.add(scriptName);
-        if (scriptArgs != null) {
-            args.addAll(scriptArgs);
-        }
-        return args;
-    }
-
-    /**
      * Execute a python script.
      *
      * @param scriptName full path name of the script to execute
      * @param pythonProcessArgs args to be passed to the python process
      * @param scriptArgs args to be passed to the python code
-     * @return true if the command succeeds
+     * @return process output of executed Python process
      */
     public ProcessOutput executeScriptAndGetOutput(final String scriptName, final List<String> pythonProcessArgs, final List<String> scriptArgs) {
         final List<String> args = validateAndBuildCommand(scriptName, pythonProcessArgs, scriptArgs);
@@ -191,25 +169,13 @@ public class PythonScriptExecutor extends PythonExecutorBase {
     }
 
     /**
-     * Auxiliary method to initialize and populate curatedCommandLineArgs
-     */
-    private void compileCuratedCommandArgs(final List<String> rawArgs) {
-        Utils.nonNull(rawArgs, "Raw args cannot be null");
-
-        // executor name first, followed by rawArgs
-        curatedCommandLineArgs.clear();
-        curatedCommandLineArgs.add(externalScriptExecutableName);
-        curatedCommandLineArgs.addAll(rawArgs);
-    }
-
-    /**
      * Executes the Python executor using the values in {@code rawArgs}
      *
      * @param rawArgs raw command line arguments to be passed to the Python process
-     * @return true if the command succeeds, otherwise false
+     * @return process output of executed Python process
      */
     public ProcessOutput executeArgsAndGetOutput(final List<String> rawArgs) {
-        compileCuratedCommandArgs(rawArgs);
+        composeCuratedCommandArgs(rawArgs);
         return executeCuratedArgsAndGetOutput(curatedCommandLineArgs.toArray(new String[curatedCommandLineArgs.size()]));
     }
 
@@ -220,7 +186,7 @@ public class PythonScriptExecutor extends PythonExecutorBase {
      * @return true if the command succeeds, otherwise false
      */
     public boolean executeArgs(final List<String> rawArgs) {
-        compileCuratedCommandArgs(rawArgs);
+        composeCuratedCommandArgs(rawArgs);
 
         try {
             // actually run the script
@@ -261,5 +227,39 @@ public class PythonScriptExecutor extends PythonExecutorBase {
         } catch (PythonScriptExecutorException e) {
             throw new RuntimeException(errorMessage, e);
         }
+    }
+
+    /**
+     * Auxiliary method that validates and builds python command line argument list
+     */
+    private List<String> validateAndBuildCommand(final String scriptName, final List<String> pythonProcessArgs, final List<String> scriptArgs) {
+        Utils.nonNull(scriptName, "script name cannot be null");
+        if (!scriptName.endsWith(PYTHON_EXTENSION)) {
+            throw new IllegalArgumentException(String.format("Python script name (%s) must end with \"%s\"",
+                    scriptName,
+                    PYTHON_EXTENSION));
+        }
+
+        final List<String> args = new ArrayList<>();
+        if (pythonProcessArgs != null) {
+            args.addAll(pythonProcessArgs);
+        }
+        args.add(scriptName);
+        if (scriptArgs != null) {
+            args.addAll(scriptArgs);
+        }
+        return args;
+    }
+
+    /**
+     * Auxiliary method to initialize and populate curatedCommandLineArgs
+     */
+    private void composeCuratedCommandArgs(final List<String> rawArgs) {
+        Utils.nonNull(rawArgs, "Raw args cannot be null");
+
+        // executor name first, followed by rawArgs
+        curatedCommandLineArgs.clear();
+        curatedCommandLineArgs.add(externalScriptExecutableName);
+        curatedCommandLineArgs.addAll(rawArgs);
     }
 }

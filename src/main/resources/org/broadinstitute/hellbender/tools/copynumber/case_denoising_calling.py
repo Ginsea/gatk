@@ -220,7 +220,8 @@ if __name__ == "__main__":
         task.disengage()
     except gcnvkernel.ConvergenceError as err:
         logger.info(err.message)
-        sys.exit(239) # Pass an exit code to Java side indicating restart is needed
+        # If inference diverged, pass an exit code to Java side indicating restart is needed
+        sys.exit(gcnvkernel.io_consts.diverged_inference_exit_code)
 
 
     # save calls

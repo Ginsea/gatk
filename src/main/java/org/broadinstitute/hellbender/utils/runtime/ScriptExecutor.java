@@ -82,25 +82,15 @@ public abstract class ScriptExecutor {
     public String getExceptionMessageFromScriptError(final ProcessOutput po) {
         Utils.nonNull(po, "process output cannot be null");
         final int exitValue = po.getExitValue();
-        final StringBuilder message = new StringBuilder();
-
-        message.append(
-                String.format("\n%s exited with %d\nCommand Line: %s",
-                        externalScriptExecutableName,
-                        exitValue,
-                        String.join(" ", commandLineArgs)));
-        if (exitValue == 137) {
-            // process received SIGKILL, which might indicate OOM
-            message.append("\nThe exit code indicates that the process was terminated. This may mean the process requires additional memory.\n");
-        }
+        final String commandLineMessage = String.format("\n%s exited with %d\nCommand Line: %s",
+                externalScriptExecutableName,
+                exitValue,
+                String.join(" ", Utils.nonNull(commandLineArgs, "command line args have not been set yet")));
 
         //if debug was enabled the stdout/error were already output somewhere
-        if (!logger.isDebugEnabled()) {
-            message.append(String.format("\nStdout: %s\nStderr: %s",
-                    po.getStdout().getBufferString(),
-                    po.getStderr().getBufferString()));
-        }
-        return message.toString();
+        final boolean outputStdout = !logger.isDebugEnabled();
+
+        return commandLineMessage.concat(po.getStatusSummary(outputStdout));
     }
 
     /**

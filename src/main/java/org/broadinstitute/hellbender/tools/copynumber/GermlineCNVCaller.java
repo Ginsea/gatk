@@ -67,6 +67,11 @@ import static org.broadinstitute.hellbender.tools.copynumber.arguments.CopyNumbe
  * copy-number states are treated as alternative states and get equal shares from the total alternative state
  * probability (set using the {@code p-alt} argument).</p>
  *
+ * <p>Note that in rare cases, the inference process can diverge which will lead to an error on python side.
+ * In such case the inference will be automatically restarted one more time with a new random seed. If it fails the
+ * second time we suggest to check if input count or karyotype values are abnormal (an example of abnormality
+ * is a count file containing mostly zeros). </p>
+ *
  * <h3>Python environment setup</h3>
  *
  * <p>The computation done by this tool, aside from input data parsing and validation, is performed outside of the Java
@@ -210,6 +215,12 @@ public final class GermlineCNVCaller extends CommandLineProgram {
     public static final String CONTIG_PLOIDY_CALLS_DIRECTORY_LONG_NAME = "contig-ploidy-calls";
     public static final String RUN_MODE_LONG_NAME = "run-mode";
 
+    // Starting gCNV random seed
+    private static final int STARTING_SEED = 1984;
+
+    // Default exit code output by gCNV python indicating divergence error, needs to be in sync with the corresponding gcnvkernel constant
+    private static final int DIVERGED_INFERENCE_EXIT_CODE = 239;
+
     @Argument(
             doc = "Input paths for read-count files containing integer read counts in genomic intervals for all samples.  " +
                     "All intervals specified via -L/-XL must be contained; " +
@@ -291,9 +302,6 @@ public final class GermlineCNVCaller extends CommandLineProgram {
     private SimpleIntervalCollection specifiedIntervals;
     private File specifiedIntervalsFile;
 
-    private final int randomGCNVSeed = 1984; // Starting gCNV random seed
-    private final int gcnvRestartExitCode = 239; // Default exit code output by gCNV python indicating divergence error
-
     @Override
     protected void onStartup() {
         /* check for successful import of gcnvkernel */
@@ -317,13 +325,13 @@ public final class GermlineCNVCaller extends CommandLineProgram {
         ProcessOutput pythonProcessOutput = executor.executeScriptAndGetOutput(
                 new Resource(script, GermlineCNVCaller.class),
                 null,
-                composePythonArguments(intervalSubsetReadCountFiles, randomGCNVSeed));
+                composePythonArguments(intervalSubsetReadCountFiles, STARTING_SEED));
         if (pythonProcessOutput.getExitValue() != 0) {
             // We restart once if the inference diverged
-            if (pythonProcessOutput.getExitValue() == gcnvRestartExitCode) {
-                final Random generator = new Random(randomGCNVSeed);
+            if (pythonProcessOutput.getExitValue() == DIVERGED_INFERENCE_EXIT_CODE) {
+                final Random generator = new Random(STARTING_SEED);
                 final int nextGCNVSeed = generator.nextInt();
-                logger.info("The inference ran into a NaN error and will be restarted one more time.");
+                logger.info("The inference failed to converge and will be restarted once with a different random seed.");
                 pythonProcessOutput = executor.executeScriptAndGetOutput(
                         new Resource(script, GermlineCNVCaller.class),
                         null,
@@ -334,7 +342,11 @@ public final class GermlineCNVCaller extends CommandLineProgram {
         }
 
         if (pythonProcessOutput.getExitValue() != 0) {
-            throw new UserException("Python return code was non-zero.");
+            if (pythonProcessOutput.getExitValue() == DIVERGED_INFERENCE_EXIT_CODE) {
+                logger.info("The inference failed to converge twice. We suggest to check if input count or karyotype" +
+                        " values are abnormal (an example of abnormality is a count file containing mostly zeros).");
+            }
+            throw executor.getScriptException(executor.getExceptionMessageFromScriptError(pythonProcessOutput));
         }
 
         logger.info(String.format("%s complete.", getClass().getSimpleName()));

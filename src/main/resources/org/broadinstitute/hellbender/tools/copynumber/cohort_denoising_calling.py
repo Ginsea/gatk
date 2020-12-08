@@ -180,7 +180,8 @@ if __name__ == "__main__":
         warm_up_task.disengage()
     except gcnvkernel.ConvergenceError as err:
         logger.info(err.message)
-        sys.exit(239) # Pass an exit code to Java side indicating restart is needed
+        # If inference diverged, pass an exit code to Java side indicating restart is needed
+        sys.exit(gcnvkernel.io_consts.diverged_inference_exit_code)
 
 
     # main task
@@ -194,7 +195,8 @@ if __name__ == "__main__":
         main_task.disengage()
     except gcnvkernel.ConvergenceError as err:
         logger.info(err.message)
-        sys.exit(239) # Pass an exit code to Java side indicating restart is needed
+        # If inference diverged, pass an exit code to Java side indicating restart is needed
+        sys.exit(gcnvkernel.io_consts.diverged_inference_exit_code)
 
 
     # save model
