@@ -13,7 +13,7 @@ public class SVDepthOnlyCallDefragmenterTest {
 
     private final static SVDepthOnlyCallDefragmenter defaultDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict);
 
-    private final static SVDepthOnlyCallDefragmenter singleSampleDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, SVTestUtils.targetIntervals);
+    private final static SVDepthOnlyCallDefragmenter singleSampleDefragmenter = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, 0.8, SVTestUtils.targetIntervals);
 
     @Test
     public void testFlattenCluster() {
@@ -87,7 +87,7 @@ public class SVDepthOnlyCallDefragmenterTest {
     @Test
     public void testAdd() {
         //single-sample merge case, ignoring sample sets
-        final SVDepthOnlyCallDefragmenter temp1 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, SVTestUtils.targetIntervals);
+        final SVDepthOnlyCallDefragmenter temp1 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, 0.8, SVTestUtils.targetIntervals);
         temp1.add(SVTestUtils.call1);
         //force new cluster by adding a non-overlapping event
         temp1.add(SVTestUtils.call3);
@@ -96,7 +96,7 @@ public class SVDepthOnlyCallDefragmenterTest {
         Assert.assertEquals(SVTestUtils.call1, output1.get(0));
         Assert.assertEquals(SVTestUtils.call3, output1.get(1));
 
-        final SVDepthOnlyCallDefragmenter temp2 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, SVTestUtils.targetIntervals);
+        final SVDepthOnlyCallDefragmenter temp2 = new SVDepthOnlyCallDefragmenter(SVTestUtils.dict, 0.0, 0.8, SVTestUtils.targetIntervals);
         temp2.add(SVTestUtils.call1);
         temp2.add(SVTestUtils.call2);  //should overlap after padding
         //force new cluster by adding a call on another contig
