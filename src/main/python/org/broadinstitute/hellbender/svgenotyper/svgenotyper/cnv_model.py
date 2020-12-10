@@ -9,8 +9,6 @@ from pyro.infer.predictive import Predictive
 from pyro.infer.autoguide import AutoDiagonalNormal
 import torch
 
-from .constants import SVTypes
-
 
 class SVDepthData(object):
     def __init__(self,
@@ -117,8 +115,7 @@ class SVDepthPyroModel(object):
             z = pyro.sample('z', dist.Categorical(z_dist))
 
             # N x S
-            norm = bin_size.unsqueeze(-1) * phi_sample * sample_depth / (self.read_length * sample_ploidy)
-            mu_counts = norm * Vindex(locs)[..., z]
+            mu_counts = bin_size.unsqueeze(-1) * phi_sample * sample_depth * Vindex(locs)[..., z] / self.read_length
 
             pyro.sample('obs', dist.Poisson(rate=mu_counts), obs=counts)
 

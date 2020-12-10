@@ -124,7 +124,7 @@ public class SVInferDepth extends GATKTool {
         // Execute Python code to initialize training
         final File tempDir = IOUtils.createTempDir(modelName + ".");
         final File tempFile = new File(Paths.get(tempDir.getAbsolutePath(), modelName + ".genotypes.tsv").toString());
-        logger.info("Executing training script...");
+        logger.info("Executing inference script...");
         final boolean result = pythonExecutor.executeScript(
                 new Resource(SV_GENOTYPE_PYTHON_SCRIPT, getClass()),
                 null,
@@ -218,7 +218,7 @@ public class SVInferDepth extends GATKTool {
             final GenotypeBuilder genotypeBuilder = new GenotypeBuilder(sampleList.get(i));
             genotypeBuilder.attribute(GATKSVVCFConstants.COPY_NUMBER_LOG_POSTERIORS_KEY, sampleStatePhreds);
             genotypeBuilder.attribute(GATKSVVCFConstants.COPY_NUMBER_FIELD, copyState);
-            genotypeBuilder.alleles(Collections.singletonList(Allele.SV_SIMPLE_CNV));
+            genotypeBuilder.alleles(Collections.singletonList(Allele.NO_CALL));
             genotypes.add(genotypeBuilder.make());
         }
         builder.genotypes(genotypes);
