@@ -193,18 +193,18 @@ public class SVInferDepth extends GATKTool {
         final String contig = tokens[0];
         final int start = Integer.parseInt(tokens[1]);
         final int end = start + Integer.parseInt(tokens[2]);
-        final double p_hw_loss = Double.parseDouble(tokens[4]);
-        final double p_hw_gain = Double.parseDouble(tokens[5]);
+        final double pHWLoss = Double.parseDouble(tokens[4]);
+        final double pHWGain = Double.parseDouble(tokens[5]);
         final double eps = Double.parseDouble(tokens[6]);
-        final double phi_bins = Double.parseDouble(tokens[6]);
+        final double phiBin = Double.parseDouble(tokens[6]);
         final String id = String.join("_", Arrays.asList(contig, String.valueOf(start), String.valueOf(end)));
 
         final VariantContextBuilder builder = new VariantContextBuilder("", contig, start, end, Arrays.asList(Allele.REF_N, Allele.SV_SIMPLE_CNV));
         builder.id(id);
-        builder.attribute(GATKSVVCFConstants.DEPTH_P_HARDY_WEINBERG_LOSS_FIELD, p_hw_loss);
-        builder.attribute(GATKSVVCFConstants.DEPTH_P_HARDY_WEINBERG_GAIN_FIELD, p_hw_gain);
+        builder.attribute(GATKSVVCFConstants.DEPTH_P_HARDY_WEINBERG_LOSS_FIELD, pHWLoss);
+        builder.attribute(GATKSVVCFConstants.DEPTH_P_HARDY_WEINBERG_GAIN_FIELD, pHWGain);
         builder.attribute(GATKSVVCFConstants.DEPTH_BACKGROUND_FIELD, eps);
-        builder.attribute(GATKSVVCFConstants.DEPTH_MEAN_BIAS_FIELD, phi_bins);
+        builder.attribute(GATKSVVCFConstants.DEPTH_MEAN_BIAS_FIELD, phiBin);
 
         final String[] stateProbStringArray = tokens[3].split(FIRST_DIM_SEPARATOR);
         if (stateProbStringArray.length != sampleList.size()) {
