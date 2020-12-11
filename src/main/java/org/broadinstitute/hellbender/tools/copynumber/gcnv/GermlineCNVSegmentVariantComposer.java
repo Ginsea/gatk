@@ -241,7 +241,7 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
                         segment.getContig(), segment.getStart(), segment.getEnd()).stream().filter(vc -> vc.getStart() == segment.getStart() && vc.getEnd() == segment.getEnd()).collect(Collectors.toList());
                 if (!matches.isEmpty() && !(matches.get(0) == null)) {
                     final VariantContext cohortVC = matches.get(0);
-                    copyAnnotationIfPresent(cohort, variantContextBuilder, VCFConstants.ALLELE_COUNT_KEY, GATKVCFConstants.ORIGINAL_AC_KEY);
+                    copyAnnotationIfPresent(cohortVC, variantContextBuilder, VCFConstants.ALLELE_COUNT_KEY, GATKVCFConstants.ORIGINAL_AC_KEY);
                     copyAnnotationIfPresent(cohortVC, variantContextBuilder, VCFConstants.ALLELE_FREQUENCY_KEY, GATKVCFConstants.ORIGINAL_AF_KEY);
                     alleleFrequency = cohortVC.getAttributeAsDoubleList(VCFConstants.ALLELE_FREQUENCY_KEY, 0.0);
                     copyAnnotationIfPresent(cohortVC, variantContextBuilder, VCFConstants.ALLELE_NUMBER_KEY, GATKVCFConstants.ORIGINAL_AN_KEY);

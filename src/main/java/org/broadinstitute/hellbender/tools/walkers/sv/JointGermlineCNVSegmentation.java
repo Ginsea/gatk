@@ -363,8 +363,10 @@ public class JointGermlineCNVSegmentation extends MultiVariantWalkerGroupedOnSta
         alleleCountMap.put(GATKSVVCFConstants.DUP_ALLELE, 0L);
         int alleleNumber = 0;
         for (final String sample : samples) {
-            final GenotypeBuilder genotypeBuilder = new GenotypeBuilder(sample);
             final Genotype g = vc.getGenotype(sample); //may be null
+            final GenotypeBuilder genotypeBuilder = g == null? new GenotypeBuilder(sample) : new GenotypeBuilder(g);  //use g to set alleles
+            final List<Allele> alleles;
+
             //get proper ploidy for autosomes and allosomes (sex chromosomes)
             final int samplePloidy = getSamplePloidy(sample, vc.getContig(), g);
             alleleNumber += samplePloidy;
@@ -380,22 +382,18 @@ public class JointGermlineCNVSegmentation extends MultiVariantWalkerGroupedOnSta
                 final int copyNumber;
                 if (sampleCopyNumbers.containsKey(sample) && sampleCopyNumbers.get(sample).getEndPosition() > vc.getStart()) {
                     copyNumber = sampleCopyNumbers.get(sample).getCopyNumber();
+                    alleles = GATKVariantContextUtils.makePloidyLengthAlleleList(samplePloidy, vcRefAllele);
                 } else if (g != null) {
                     copyNumber = VariantContextGetters.getAttributeAsInt(g, GATKSVVCFConstants.COPY_NUMBER_FORMAT, samplePloidy);
+                    alleles = g.getAlleles();
                 } else {
                     copyNumber = samplePloidy;
+                    alleles = GATKSVVariantContextUtils.makeGenotypeAllelesFromCopyNumber(copyNumber, samplePloidy, vcRefAllele);
                 }
                 genotypeBuilder.attribute(GATKSVVCFConstants.COPY_NUMBER_FORMAT, copyNumber);
-                newGenotypes.add(genotypeBuilder.make());
 
-                //set called alleles
-                final List<Allele> alleles;
-                if (!isMultiSampleInput || g == null) {  //if it's a multi-sample VCF we can trust the input genotypes
-                    alleles = GATKSVVariantContextUtils.makeGenotypeAllelesFromCopyNumber(copyNumber, samplePloidy, vcRefAllele);
-                } else {
-                    alleles = g.getAlleles();
-                }
                 genotypeBuilder.alleles(alleles);
+                newGenotypes.add(genotypeBuilder.make());
 
                 //use called alleles to update AC
                 //check for genotype in VC because we don't want to count overlapping events (in sampleCopyNumbers map) towards AC
