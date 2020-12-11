@@ -171,6 +171,7 @@ public final class SVCluster extends VariantWalker {
         if (dictionary == null) {
             throw new UserException("Reference sequence dictionary required");
         }
+        samples = new LinkedHashSet<>(getHeaderForVariants().getSampleNamesInOrder());
         loadSampleCoverage();
         initializeSplitReadEvidenceDataSource();
         initializeDiscordantPairDataSource();
@@ -225,9 +226,6 @@ public final class SVCluster extends VariantWalker {
             sampleCoverageMap = IOUtils.readLines(BucketUtils.openFile(fileString), Charset.defaultCharset()).stream()
                     .map(line -> line.split("\t"))
                     .collect(Collectors.toMap(tokens -> tokens[0], tokens -> Double.valueOf(tokens[1])));
-            samples = IOUtils.readLines(BucketUtils.openFile(fileString), Charset.defaultCharset()).stream()
-                    .map(line -> line.split("\t")[0])
-                    .collect(Collectors.toSet());
         } catch (final IOException e) {
             throw new UserException.CouldNotReadInputFile(fileString, e);
         }

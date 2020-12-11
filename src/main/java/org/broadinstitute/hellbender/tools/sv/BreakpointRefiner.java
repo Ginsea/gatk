@@ -186,7 +186,7 @@ public class BreakpointRefiner {
                                                  final double meanCoverage) {
         final double medianNormalizedCarrierCount = getMedianNormalizedCount(carrierSamples, site);
         if (medianNormalizedCarrierCount == 0) {
-            return 0;
+            return 1;  // Degenerate case in which the Poisson distribution is undefined
         }
         final double medianBackgroundRate = getMedianNormalizedCount(backgroundSamples, site);
         final int backgroundCount = (int) Math.round(medianBackgroundRate * meanCoverage);
@@ -213,7 +213,7 @@ public class BreakpointRefiner {
         if (sortedValues.size() % 2 == 1) {
             return sortedValues.get(sortedValues.size() /2 );
         }
-        return (sortedValues.get(sortedValues.size() / 2) + sortedValues.get((sortedValues.size() / 2) - 1)) / 2.;
+        return 0.5 * (sortedValues.get(sortedValues.size() / 2) + sortedValues.get((sortedValues.size() / 2) - 1));
     }
 
     private static double cumulativePoissonProbability(final double mean, final int x) {
