@@ -80,7 +80,6 @@ public class BreakpointRefiner {
         final Set<String> backgroundSamples = getBackgroundSamples(call);
         final Set<String> calledSamples = call.getCalledSamples();
 
-
         // Refine start
         final SplitReadSite refinedStartSite = getRefinedSite(call.getStartSplitReadSites(), calledSamples, backgroundSamples, call.getPositionA());
 
@@ -90,10 +89,18 @@ public class BreakpointRefiner {
         final List<SplitReadSite> validEndSites = getValidEndSplitReadSites(call, endLowerBound);
         final SplitReadSite refinedEndSite = getRefinedSite(validEndSites, calledSamples, backgroundSamples, defaultEndPosition);
 
+        final int length;
+        if (call.getType().equals(StructuralVariantType.DEL) || call.getType().equals(StructuralVariantType.DEL)
+                || call.getType().equals(StructuralVariantType.CNV) || call.getType().equals(StructuralVariantType.INV)) {
+            length = call.getPositionB() - call.getPositionA() + 1;
+        } else {
+            length = call.getLength();
+        }
+
         // Create new record
         return new SVCallRecordWithEvidence(
                 call.getId(), call.getContigA(), refinedStartSite.getPosition(), call.getStrandA(), call.getContigB(),
-                refinedEndSite.getPosition(), call.getStrandB(), call.getType(), call.getLength(), call.getAlgorithms(),
+                refinedEndSite.getPosition(), call.getStrandB(), call.getType(), length, call.getAlgorithms(),
                 call.getGenotypes(), call.getStartSplitReadSites(), call.getEndSplitReadSites(), call.getDiscordantPairs(),
                 call.getCopyNumberDistribution());
     }

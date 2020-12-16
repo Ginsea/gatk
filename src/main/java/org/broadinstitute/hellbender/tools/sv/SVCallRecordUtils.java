@@ -41,13 +41,24 @@ public final class SVCallRecordUtils {
         Utils.nonNull(call);
         final Allele altAllele = Allele.create("<" + call.getType().name() + ">", false);
         final Allele refAllele = Allele.REF_N;
-        final int end = isIntrachromosomal(call) ? call.getPositionB() : call.getPositionA() + 1;
+        final int end;
+        if (call.getType().equals(StructuralVariantType.INS) || call.getType().equals(StructuralVariantType.BND)) {
+            end = call.getPositionA() + 1;
+        } else {
+            end = call.getPositionB();
+        }
+        final int end2;
+        if (call.getType().equals(StructuralVariantType.INS)) {
+            end2 = call.getPositionA() + 1;
+        } else {
+            end2 = call.getPositionB();
+        }
         final VariantContextBuilder builder = new VariantContextBuilder(call.getId(), call.getContigA(), call.getPositionA(),
                 end, Lists.newArrayList(refAllele, altAllele));
         builder.id(call.getId());
         builder.attribute(VCFConstants.END_KEY, end);
         builder.attribute(GATKSVVCFConstants.CONTIG2_ATTRIBUTE, call.getContigB());
-        builder.attribute(GATKSVVCFConstants.END2_ATTRIBUTE, call.getPositionB());
+        builder.attribute(GATKSVVCFConstants.END2_ATTRIBUTE, end2);
         builder.attribute(GATKSVVCFConstants.SVLEN, call.getLength());
         builder.attribute(GATKSVVCFConstants.SVTYPE, call.getType());
         builder.attribute(GATKSVVCFConstants.STRANDS_ATTRIBUTE, getStrandString(call));
