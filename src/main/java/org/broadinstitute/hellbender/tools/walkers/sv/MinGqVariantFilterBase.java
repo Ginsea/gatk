@@ -1,5 +1,6 @@
 package org.broadinstitute.hellbender.tools.walkers.sv;
 
+import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.*;
 import htsjdk.variant.variantcontext.writer.VariantContextWriter;
 import htsjdk.variant.vcf.*;
@@ -12,6 +13,7 @@ import org.broadinstitute.hellbender.cmdline.StandardArgumentDefinitions;
 import org.broadinstitute.hellbender.engine.*;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
+import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.samples.PedigreeValidationType;
 import org.broadinstitute.hellbender.utils.samples.SampleDBBuilder;
@@ -19,6 +21,7 @@ import org.broadinstitute.hellbender.utils.samples.Trio;
 
 import java.io.*;
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -90,6 +93,11 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
               doc="If the VCF does not have allele frequency, estimate it from the sample population if there are at least this many samples. Otherwise throw an exception.")
     public int minSamplesToEstimateAlleleFrequency = 100;
 
+    @Argument(fullName="genome-tract", shortName="gt", optional = true)
+    final List<String> genomeTractFiles = new ArrayList<>();
+
+    List<TractOverlapDetector> tractOverlapDetectors = null;
+
     static final Map<String, double[]> propertyBinsMap = new HashMap<String, double[]>() {
         private static final long serialVersionUID = 0;
         {
@@ -97,6 +105,8 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
             put(SVLEN_KEY, new double[] {500.0, 5000.0});
         }
     };
+
+
 
     // numVariants x numProperties matrix of variant properties
     protected Map<String, double[]> variantPropertiesMap = null;
@@ -120,15 +130,24 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     private int numTrios;
     private int numProperties;
 
+
+    private static final Set<String> GAIN_SV_TYPES = new HashSet<>(Arrays.asList("INS", "DUP", "MEI", "ITX"));
+    private static final Set<String> BREAKPOINT_SV_TYPES = new HashSet<>(Arrays.asList("BND", "CTX"));
+    private static final double SV_EXPAND_RATIO = 1.0; // ratio of how mu//ch to expand SV gain range to SVLEN
+    private static final int BREAKPOINT_HALF_WIDTH = 50; // how wide to make breakpoint intervals for tract overlap
     private static final String SVLEN_KEY = "SVLEN";
     private static final String EVIDENCE_KEY = "EVIDENCE";
+    private static final String NO_EVIDENCE = "NO_EVIDENCE";
+    private static final String ALGORITHMS_KEY = "ALGORITHMS";
+    private static final String NO_ALGORITHM = "NO_ALGORITHM";
     private static final String AF_PROPERTY_NAME = "AF";
     private static final String MIN_GQ_KEY = "MINGQ";
-    private static final String EXCESSIVE_MIN_GQ_FILTER_KEY = "LOW_GQ";
+    private static final String EXCESSIVE_MIN_GQ_FILTER_KEY = "LOW_QUALITY";
     private static final String MULTIALLELIC_FILTER = "MULTIALLELIC";
-    private static final String NO_EVIDENCE = "NO_EVIDENCE";
     private static final String GOOD_VARIANT_TRUTH_KEY = "good";
     private static final String BAD_VARIANT_TRUTH_KEY = "bad";
+    private static final String CHR2_KEY = "CHR2";
+    private static final String END2_KEY = "END2";
 
     // properties used to gather main matrix / tensors during apply()
     private Set<Trio> pedTrios = null;
@@ -137,11 +156,14 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
     private final List<Integer> svLens = new ArrayList<>();
     private final List<Set<String>> variantFilters = new ArrayList<>();
     private final List<Set<String>> variantEvidence = new ArrayList<>();
+    private final List<Set<String>> variantAlgorithms = new ArrayList<>();
     private Map<String, Set<String>> goodVariantSamples = null;
     private Map<String, Set<String>> badVariantSamples = null;
+    private final Map<String, List<Double>> tractOverlapProperties = new HashMap<>();
 
     // saved initial values
     private List<String> allEvidenceTypes = null;
+    private List<String> allAlgorithmTypes = null;
     private List<String> allFilterTypes = null;
     private List<String> allSvTypes = null;
     private List<String> propertyNames = null;
@@ -239,9 +261,20 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
         vcfWriter.writeHeader(new VCFHeader(hInfo, getHeaderForVariants().getGenotypeSamples()));
     }
 
+
+
     @Override
     public void onTraversalStart() {
         loadTrainedModel();  // load model and saved properties stats
+            tractOverlapDetectors = genomeTractFiles.stream()
+                .map(genomeTractFile -> {
+                        try {
+                            return new TractOverlapDetector(genomeTractFile);
+                        } catch(IOException ioException) {
+                            throw new GATKException("Error loading " + genomeTractFile, ioException);
+                        }
+                    })
+                .collect(Collectors.toList());
         if(runMode == RunMode.TRAIN) {
             getPedTrios();  // get trios from pedigree file
             getVariantTruthData(); // load variant truth data from JSON file
@@ -280,6 +313,87 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
             }
         } else {
             return false;
+        }
+    }
+
+    private void setTractOverlapProperty(final String propertyName, final double propertyValue) {
+        if(!tractOverlapProperties.containsKey(propertyName)) {
+            tractOverlapProperties.put(propertyName, new ArrayList<>());
+        }
+        tractOverlapProperties.get(propertyName).add(propertyValue);
+    }
+
+    private void getTractProperties(final TractOverlapDetector tractOverlapDetector,
+                                    final VariantContext variantContext) {
+        // get range of variant (use expanded location for insertions or duplications)
+        final String svType = variantContext.getAttributeAsString(VCFConstants.SVTYPE, null);
+        final int expand = GAIN_SV_TYPES.contains(svType)  ?
+                (int)(variantContext.getAttributeAsInt(SVLEN_KEY, 0) * SV_EXPAND_RATIO) :
+                0;
+        final String contig = variantContext.getContig();
+        final String chr2 = variantContext.getAttributeAsString(CHR2_KEY, contig);
+        final int start = max(variantContext.getStart()  - expand, 1);
+        final int end = variantContext.getAttributeAsInt(END2_KEY, variantContext.getEnd() + expand);
+        if(!BREAKPOINT_SV_TYPES.contains(svType)) {
+            if(variantContext.getStart() >= variantContext.getEnd()) {
+                throw new GATKException("variantContext.start >= variantContext.end (" + variantContext.getStart() + ", " + variantContext.getEnd() + ")");
+            }
+            final int end2 = variantContext.getAttributeAsInt(END2_KEY, variantContext.getEnd());
+            if(variantContext.getStart() >= end2) {
+                throw new GATKException("variantContext.start >= variantContext.END2 (" + variantContext.getStart() + ", " + end2 + "). contig=" + contig + ", CHR2=" + chr2);
+            }
+        }
+        final Locatable left = new SimpleInterval(contig, max(start - BREAKPOINT_HALF_WIDTH, 1),
+                                                  start + BREAKPOINT_HALF_WIDTH);
+        final Locatable right = new SimpleInterval(chr2, max(end - BREAKPOINT_HALF_WIDTH, 1),
+                end + BREAKPOINT_HALF_WIDTH);
+        final Locatable center = BREAKPOINT_SV_TYPES.contains(svType) ?
+            null :
+            new SimpleInterval(contig, start, end);
+
+        if(tractOverlapDetector.hasOther()) {
+            // get main overlap
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_center",
+                    center == null ?
+                            0.0 :
+                            tractOverlapDetector.getPrimaryOverlapFraction(center)
+                            + tractOverlapDetector.getOtherOverlapfraction(center)
+            );
+            // get left breakpoint overlap
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_left",
+                    tractOverlapDetector.getPrimaryOverlapFraction(left)
+                                  + tractOverlapDetector.getOtherOverlapfraction(left)
+            );
+            // get right breakpoint overlap
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_right",
+                    tractOverlapDetector.getPrimaryOverlapFraction(right)
+                                  + tractOverlapDetector.getOtherOverlapfraction(right)
+            );
+
+            // check if variant spans
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_spans",
+                    tractOverlapDetector.spansPrimaryAndOther(left, right) ? 1.0 : 0.0
+            );
+        } else {
+            // get main overlap
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_center",
+                    center == null ? 0.0 : tractOverlapDetector.getPrimaryOverlapFraction(center)
+            );
+            // get left breakpoint overlap
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_left",
+                    tractOverlapDetector.getPrimaryOverlapFraction(left)
+            );
+            // get right breakpoint overlap
+            setTractOverlapProperty(
+                    tractOverlapDetector.getName() + "_right",
+                    tractOverlapDetector.getPrimaryOverlapFraction(right)
+            );
         }
     }
 
@@ -340,6 +454,19 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
             throw new GATKException("Missing " + EVIDENCE_KEY + " for variant " + variantContext.getID());
         }
         variantEvidence.add(vcEvidence);
+
+        final Set<String> vcAlgorithms = Arrays.stream(
+                variantContext.getAttributeAsString(ALGORITHMS_KEY, NO_ALGORITHM)
+                        .replaceAll("[\\[\\] ]", "").split(",")
+        ).map(ev -> ev.equals(".") ? NO_ALGORITHM : ev).collect(Collectors.toSet());
+        if(vcAlgorithms.isEmpty()) {
+            throw new GATKException("Missing " + ALGORITHMS_KEY + " for variant " + variantContext.getID());
+        }
+        variantAlgorithms.add(vcAlgorithms);
+
+        for(final TractOverlapDetector tractOverlapDetector : tractOverlapDetectors) {
+            getTractProperties(tractOverlapDetector, variantContext);
+        }
 
         if(runMode == RunMode.TRAIN) {
             // get per-sample genotype qualities as a map indexed by sample ID
@@ -575,10 +702,12 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
 
     private void collectVariantPropertiesMap() {
         allEvidenceTypes = assignAllSetLabels(variantEvidence, allEvidenceTypes);
+        allAlgorithmTypes = assignAllSetLabels(variantAlgorithms, allAlgorithmTypes);
         allFilterTypes = assignAllSetLabels(variantFilters, allFilterTypes);
         allSvTypes = assignAllLabels(svTypes, allSvTypes);
         variantPropertiesMap = Stream.of(
             labelsListsToLabelStatus(variantEvidence, allEvidenceTypes),
+            labelsListsToLabelStatus(variantAlgorithms, allAlgorithmTypes),
             labelsListsToLabelStatus(variantFilters, allFilterTypes),
             labelsToLabelStatus(svTypes, allSvTypes),
             Collections.singletonMap(
@@ -588,6 +717,13 @@ public abstract class MinGqVariantFilterBase extends VariantWalker {
                 SVLEN_KEY, getPropertyAsDoubles(SVLEN_KEY, svLens.stream().mapToInt(x -> x).toArray())
             )
         ).flatMap(e -> e.entrySet().stream()).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        for(final Map.Entry<String, List<Double>> tractEntry : tractOverlapProperties.entrySet()) {
+            variantPropertiesMap.put(
+                tractEntry.getKey(),
+                getPropertyAsDoubles(tractEntry.getKey(), tractEntry.getValue().stream().mapToDouble(x -> x).toArray())
+            );
+        }
+
 
         List<String> suppliedPropertyNames = propertyNames == null ? null : new ArrayList<>(propertyNames);
         propertyNames = variantPropertiesMap.keySet().stream().sorted().collect(Collectors.toList());

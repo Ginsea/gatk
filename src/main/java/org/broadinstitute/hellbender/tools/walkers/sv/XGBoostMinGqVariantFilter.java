@@ -338,13 +338,20 @@ public class XGBoostMinGqVariantFilter extends MinGqVariantFilterBase {
                 if(printProgress > 1) {
                     final int[] perVariantOptimalMinGq = getPerVariantOptimalMinGq(dataSubset.variantIndices);
                     System.out.println("predicts.size = [" + predicts.length + "," + predicts[0].length + "]");
-                    System.out.println("minGq\toptimal\td1\td2");
+                    System.out.println("index\tminGq\toptimal\td1\td2");
                     IntStream.range(0, dataSubset.size())
-                        .mapToObj()
-                    for(int idx = 0; idx < 10; ++idx) {
-                        System.out.println(dataSubset.intMinGq[idx] + "\t" + perVariantOptimalMinGq[idx]
-                                           + "\t" + dataSubset.d1Loss[idx] + "\t" + dataSubset.d2Loss[idx]);
-                    }
+                        .mapToObj(i -> new AbstractMap.SimpleEntry<>(i, FastMath.abs(dataSubset.intMinGq[i] - perVariantOptimalMinGq[i])))
+                        .sorted(Map.Entry.comparingByValue())
+                        .skip(dataSubset.size() - 10)
+                        .sorted(Map.Entry.comparingByKey())
+                        .forEach(
+                            entry -> {
+                                final int i = entry.getKey();
+                                System.out.format("%6d:\t%4d\t%4d\t%f\t%f%n",
+                                                  i, dataSubset.intMinGq[i], perVariantOptimalMinGq[i],
+                                                  dataSubset.d1Loss[i], dataSubset.d2Loss[i]);
+                            }
+                        );
                 }
             }
             if(printProgress > 0) {
